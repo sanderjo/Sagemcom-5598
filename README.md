@@ -16,6 +16,15 @@ from HAR captures of the router's own web UI and its Angular JS bundle.
 pip install requests
 ```
 
+## Files
+
+| File                       | Purpose                                                   |
+|----------------------------|------------------------------------------------------------|
+| `sagemcom5598.py`          | The module and CLI                                          |
+| `credentials.ini.example`  | Template for `credentials.ini` (copy it, fill in your password) |
+| `README.md`                | This file                                                   |
+| `LICENSE`                  | GPL-3.0 license text                                        |
+
 ## Usage as a module
 
 ```python
