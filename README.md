@@ -153,6 +153,28 @@ Optional overrides: `--ip` (default `192.168.1.254`), `--username` (default `beh
 python3 sagemcom5598.py --login "loginpassword" --connected_devices --firewall_settings
 ```
 
+### Storing credentials in `credentials.ini`
+
+Instead of passing `--login` every time, copy `credentials.ini.example` to
+`credentials.ini` (next to `sagemcom5598.py`) and fill in your password:
+
+```ini
+[router]
+ip = 192.168.1.254
+login = beheer
+password = your-router-password
+```
+
+Then just run:
+
+```bash
+python3 sagemcom5598.py --connected_devices
+```
+
+Any of `--login`, `--ip`, or `--username` passed on the command line takes
+precedence over the values in `credentials.ini`. This file is gitignored —
+never commit it.
+
 ## Notes
 
 - Tested against a Sagemcom F@st 5598 (model `F5598T`) on Delta Fiber's

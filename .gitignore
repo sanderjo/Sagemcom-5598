@@ -3,4 +3,6 @@ __pycache__/
 
 *.har
 
+credentials.ini
+
 .DS_Store

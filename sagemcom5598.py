@@ -2,10 +2,14 @@
 """Client for the Sagemcom F@st 5598 (Delta Fiber) router web API."""
 
 import argparse
+import configparser
 import hashlib
 import random
+from pathlib import Path
 
 import requests
+
+_CREDENTIALS_INI = Path(__file__).with_name("credentials.ini")
 
 _B64_ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -253,22 +257,42 @@ def _print_firewall(fw: dict) -> None:
     )
 
 
+def _load_credentials_ini() -> dict:
+    if not _CREDENTIALS_INI.is_file():
+        return {}
+    config = configparser.ConfigParser()
+    config.read(_CREDENTIALS_INI)
+    if not config.has_section("router"):
+        return {}
+    return dict(config["router"])
+
+
 def _cli() -> None:
     parser = argparse.ArgumentParser(description="Sagemcom5598 router CLI")
-    parser.add_argument("--login", dest="password", required=True, help="router admin password")
-    parser.add_argument("--ip", default="192.168.1.254", help="router IP (default: 192.168.1.254)")
-    parser.add_argument("--username", default="beheer", help="router login username (default: beheer)")
+    parser.add_argument(
+        "--login", dest="password", default=None,
+        help="router admin password (falls back to credentials.ini if omitted)",
+    )
+    parser.add_argument("--ip", default=None, help="router IP (default: 192.168.1.254, or credentials.ini)")
+    parser.add_argument("--username", default=None, help="router login username (default: beheer, or credentials.ini)")
     parser.add_argument("--connected_extenders", action="store_true", help="show connected extenders")
     parser.add_argument("--connected_devices", action="store_true", help="show connected devices")
     parser.add_argument("--firewall_settings", action="store_true", help="show firewall settings")
     args = parser.parse_args()
 
+    ini = _load_credentials_ini()
+    ip = args.ip or ini.get("ip") or "192.168.1.254"
+    username = args.username or ini.get("login") or "beheer"
+    password = args.password or ini.get("password")
+    if not password:
+        parser.error("password required: pass --login or provide credentials.ini")
+
     client = Sagemcom5598()
     try:
-        client.login(ip=args.ip, login=args.username, password=args.password)
+        client.login(ip=ip, login=username, password=password)
     except requests.exceptions.RequestException as exc:
         if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
-            reason = f"no router found on {args.ip}"
+            reason = f"no router found on {ip}"
         elif isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None and exc.response.status_code == 400:
             reason = "password is incorrect"
         else:
