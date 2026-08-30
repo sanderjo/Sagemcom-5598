@@ -286,10 +286,10 @@ python3 wifi_stats_diff.py
 ```
 
 ```
-band       rx MB     tx MB  notes
-2.4         0.01      0.02
-5          12.34     45.67
-6           0.00      0.00
+band           rx MB     tx MB  notes
+2.4            10.44    607.69  
+5              88.31  13968.58  
+6              77.29      5.48 
 ```
 
 `wifi_stats_diff.py` auto-detects which kind of table it's looking at (`--wifi_stats`,
