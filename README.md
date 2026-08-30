@@ -24,6 +24,7 @@ pip install requests
 | `credentials.ini.example`  | Template for `credentials.ini` (copy it, fill in your password) |
 | `README.md`                | This file                                                   |
 | `LICENSE`                  | GPL-3.0 license text                                        |
+| `tests/test_sagemcom5598.py` | Live integration tests against a real router               |
 
 ## Usage as a module
 
@@ -183,6 +184,16 @@ python3 sagemcom5598.py --connected_devices
 Any of `--login`, `--ip`, or `--username` passed on the command line takes
 precedence over the values in `credentials.ini`. This file is gitignored —
 never commit it.
+
+## Tests
+
+`tests/test_sagemcom5598.py` are live integration tests that run against a
+real router, using the credentials from `credentials.ini`. They're skipped
+automatically if `credentials.ini` is missing or the router can't be reached.
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## Notes
 
