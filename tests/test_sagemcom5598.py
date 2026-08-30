@@ -58,6 +58,25 @@ class Sagemcom5598LiveTest(unittest.TestCase):
         for rule in firewall["rules"]:
             self.assertIn(rule["ip_version"], ("ipv4", "ipv6"))
 
+    def test_wifi_stats(self):
+        stats = self.client.wifi_stats()
+        self.assertIsInstance(stats, dict)
+        self.assertEqual(set(stats.keys()), {"2.4", "5", "6"})
+        for band in stats.values():
+            for key in ("status", "max_bitrate_mbps", "rx", "tx"):
+                self.assertIn(key, band)
+            for direction in (band["rx"], band["tx"]):
+                self.assertIn("bytes", direction)
+                self.assertIn("packets", direction)
+
+    def test_wan_stats(self):
+        stats = self.client.wan_stats()
+        self.assertIsInstance(stats, dict)
+        self.assertEqual(set(stats.keys()), {"rx", "tx"})
+        for direction in (stats["rx"], stats["tx"]):
+            self.assertIsInstance(direction["bytes"], int)
+            self.assertIsInstance(direction["packets"], int)
+
 
 if __name__ == "__main__":
     unittest.main()

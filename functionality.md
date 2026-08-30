@@ -19,7 +19,8 @@ Login http://192.168.1.254/, with credentials provided by the user in the startu
 
 ## Input
 
-Provided are HAR files from Chrome
+Provided are HAR files from Chrome: CTRL + SHIFT + I.
+A typical HAR file is 10-30 MB in size.
 
 ## wanted Functions / classes
 
@@ -29,6 +30,7 @@ I want a class "sagemcom5598", with methods:
 - connected_extenders, and their firmwares. Source: http://192.168.1.254/#/wifi/2.4GHz/priv/mesh/extenders . Output in JSON
 - connected_devices, from http://192.168.1.254/#/wifi/2.4GHz/priv/mesh/devices . Output: JSON with names, ip, mac, and wifi band and wifi signal strength
 - firewall_settings, from http://192.168.1.254/#/access-control/firewall/custom . Output, JSON with settings, including IPV4 or IPv6.
+- wifi_stats, from http://192.168.1.254/#/wifi/5GHz/priv/stats . Output in JSON with stats for 2.4, 5 and 6 GHz bands.
 
 The python code should use pure python code, not Selenium or other browser emulators.
 
@@ -48,7 +50,7 @@ a file "sagemcom5598.py" that can be used from CLI and as module
 Optional parameters:
 `--connected_extenders`: shows in human readable way the info
 `--connected_devices`: shows in human readable way the info
- `--firewall_settings`: shows in human readable way the info
+`--firewall_settings`: shows in human readable way the info
  
  ### from within python3 scripts
  

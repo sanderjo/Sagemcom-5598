@@ -227,6 +227,29 @@ class Sagemcom5598:
             "rules": rules,
         }
 
+    def wifi_stats(self) -> dict:
+        bands = {"2.4": "24", "5": "5", "6": "6"}
+        stats = {}
+        for label, path_band in bands.items():
+            ssid = self._get_json(f"/api/v2/wireless/stats/{path_band}")[0]["wireless"]["ssid"]
+            stats[label] = {
+                "status": ssid.get("status"),
+                "max_bitrate_mbps": ssid.get("maxbitrate"),
+                "rx": ssid.get("stats", {}).get("rx"),
+                "tx": ssid.get("stats", {}).get("tx"),
+            }
+        return stats
+
+    def wan_stats(self) -> dict:
+        """Total bytes in/out on the WAN link - unlike wifi_stats(), this
+        includes traffic from every client, wired or wireless, on the
+        gateway or on any extender, since it's downstream of all of them."""
+        stats = self._get_json("/api/v1/wan/ip/stats")[0]["wan"]["ip"]["stats"]
+        return {
+            "rx": {k: int(v) for k, v in stats["rx"].items()},
+            "tx": {k: int(v) for k, v in stats["tx"].items()},
+        }
+
 
 def _print_table(rows: list[dict], columns: list[str]) -> None:
     if not rows:
@@ -257,6 +280,47 @@ def _print_firewall(fw: dict) -> None:
     )
 
 
+def _print_wifi_stats(stats: dict) -> None:
+    rows = [
+        {
+            "band": band,
+            "status": data["status"],
+            "max_bitrate_mbps": data["max_bitrate_mbps"],
+            "rx_bytes": data["rx"]["bytes"],
+            "rx_packets": data["rx"]["packets"],
+            "rx_errors": data["rx"]["packetserrors"],
+            "tx_bytes": data["tx"]["bytes"],
+            "tx_packets": data["tx"]["packets"],
+            "tx_errors": data["tx"]["packetserrors"],
+        }
+        for band, data in stats.items()
+    ]
+    _print_table(
+        rows,
+        columns=[
+            "band", "status", "max_bitrate_mbps",
+            "rx_bytes", "rx_packets", "rx_errors",
+            "tx_bytes", "tx_packets", "tx_errors",
+        ],
+    )
+
+
+def _print_wan_stats(stats: dict) -> None:
+    row = {
+        "interface": "wan",
+        "rx_bytes": stats["rx"]["bytes"],
+        "rx_packets": stats["rx"]["packets"],
+        "rx_errors": stats["rx"]["packetserrors"],
+        "tx_bytes": stats["tx"]["bytes"],
+        "tx_packets": stats["tx"]["packets"],
+        "tx_errors": stats["tx"]["packetserrors"],
+    }
+    _print_table(
+        [row],
+        columns=["interface", "rx_bytes", "rx_packets", "rx_errors", "tx_bytes", "tx_packets", "tx_errors"],
+    )
+
+
 def _load_credentials_ini() -> dict:
     if not _CREDENTIALS_INI.is_file():
         return {}
@@ -278,6 +342,8 @@ def _cli() -> None:
     parser.add_argument("--connected_extenders", action="store_true", help="show connected extenders")
     parser.add_argument("--connected_devices", action="store_true", help="show connected devices")
     parser.add_argument("--firewall_settings", action="store_true", help="show firewall settings")
+    parser.add_argument("--wifi_stats", action="store_true", help="show wifi stats for 2.4/5/6 GHz bands")
+    parser.add_argument("--wan_stats", action="store_true", help="show total WAN rx/tx bytes")
     args = parser.parse_args()
 
     ini = _load_credentials_ini()
@@ -319,6 +385,13 @@ def _cli() -> None:
             print()
         if args.firewall_settings:
             _print_firewall(client.firewall_settings())
+        if args.wifi_stats:
+            print("Wifi stats:")
+            _print_wifi_stats(client.wifi_stats())
+            print()
+        if args.wan_stats:
+            print("Wan stats:")
+            _print_wan_stats(client.wan_stats())
     finally:
         client.logout()
 
