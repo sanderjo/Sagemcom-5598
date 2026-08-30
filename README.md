@@ -162,3 +162,7 @@ python3 sagemcom5598.py --login "loginpassword" --connected_devices --firewall_s
   admin session is allowed at a time.
 - This is an unofficial, reverse-engineered client, not affiliated with
   Sagemcom or Delta Fiber.
+
+## License
+
+[GPL-3.0](LICENSE)
