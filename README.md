@@ -242,6 +242,12 @@ Optional flags, each printed in a human-readable table:
 | `--wifi_stats`          | Traffic stats per wifi band     |
 | `--wan_stats`           | Total WAN rx/tx bytes           |
 
+`--firewall_allow_ipv6_port PORT` is a write action, not a table: it adds two
+Custom-chain firewall rules (one per direction) that Accept ipv6 tcp/udp
+traffic on `PORT`, and prints `Allowed ipv6 port PORT` on success.
+`--firewall_remove_ipv6_port PORT` undoes that: it removes every ipv6
+Custom-chain rule allowing `PORT` and prints how many rules were removed.
+
 Optional overrides: `--ip` (default `192.168.1.254`), `--username` (default `beheer`).
 
 ```bash

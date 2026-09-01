@@ -227,6 +227,57 @@ class Sagemcom5598:
             "rules": rules,
         }
 
+    def firewall_allow_ipv6_port(self, port: int) -> None:
+        """Add a pair of Custom-chain firewall rules that Accept ipv6
+        tcp+udp traffic on `port` - one per direction (lan->wan, wan->lan) -
+        replicating the two requests the web UI's "allow port" quick action
+        sends (see 192.168.1.254-new-login-and-firewall-ipv6-allow-port-5076.har)."""
+        description = f"ipv6 port {port} "
+        for src_intf, dst_intf, src_ports, dst_ports in (
+            ("lan", "wan", port, -1),
+            ("wan", "lan", -1, port),
+        ):
+            resp = self.session.post(
+                f"{self.base_url}/api/v2/firewall/chain/rules",
+                data={
+                    "chain": "Custom",
+                    "enable": 1,
+                    "action": "Accept",
+                    "description": description,
+                    "service": "NONE",
+                    "dst_ports": dst_ports,
+                    "protocol": "tcp,udp",
+                    "src_ports": src_ports,
+                    "order": 6,
+                    "src_intf": src_intf,
+                    "dst_intf": dst_intf,
+                    "ip_protocol": "ipv6",
+                    "dst_port_range_max": -1,
+                    "src_port_range_max": -1,
+                },
+            )
+            resp.raise_for_status()
+
+    def firewall_remove_ipv6_port(self, port: int) -> int:
+        """Remove every Custom-chain ipv6 rule that allows `port` (as
+        src_ports or dst_ports), i.e. the rule pair added by
+        `firewall_allow_ipv6_port()`. Returns the number of rules removed.
+        See 192.168.1.254-new-login-and-firewall-ipv6-remove-port-5076.har."""
+        custom_chain = self._get_json("/api/v2/firewall/chain", params={"chain": "Custom"})[0]
+        matching_ids = [
+            rule["id"]
+            for rule in custom_chain.get("rules", [])
+            if rule.get("ip_protocol") == "ipv6"
+            and port in (rule.get("src_ports"), rule.get("dst_ports"))
+        ]
+        for rule_id in matching_ids:
+            resp = self.session.delete(
+                f"{self.base_url}/api/v2/firewall/chain/rules/{rule_id}",
+                data={"chain": "Custom"},
+            )
+            resp.raise_for_status()
+        return len(matching_ids)
+
     def wifi_stats(self) -> dict:
         bands = {"2.4": "24", "5": "5", "6": "6"}
         stats = {}
@@ -342,6 +393,14 @@ def _cli() -> None:
     parser.add_argument("--connected_extenders", action="store_true", help="show connected extenders")
     parser.add_argument("--connected_devices", action="store_true", help="show connected devices")
     parser.add_argument("--firewall_settings", action="store_true", help="show firewall settings")
+    parser.add_argument(
+        "--firewall_allow_ipv6_port", type=int, default=None, metavar="PORT",
+        help="allow ipv6 tcp/udp traffic on PORT (adds Custom firewall rules, both directions)",
+    )
+    parser.add_argument(
+        "--firewall_remove_ipv6_port", type=int, default=None, metavar="PORT",
+        help="remove ipv6 firewall rules allowing PORT (undoes --firewall_allow_ipv6_port)",
+    )
     parser.add_argument("--wifi_stats", action="store_true", help="show wifi stats for 2.4/5/6 GHz bands")
     parser.add_argument("--wan_stats", action="store_true", help="show total WAN rx/tx bytes")
     args = parser.parse_args()
@@ -385,6 +444,12 @@ def _cli() -> None:
             print()
         if args.firewall_settings:
             _print_firewall(client.firewall_settings())
+        if args.firewall_allow_ipv6_port:
+            client.firewall_allow_ipv6_port(args.firewall_allow_ipv6_port)
+            print(f"Allowed ipv6 port {args.firewall_allow_ipv6_port}")
+        if args.firewall_remove_ipv6_port:
+            removed = client.firewall_remove_ipv6_port(args.firewall_remove_ipv6_port)
+            print(f"Removed {removed} ipv6 firewall rule(s) for port {args.firewall_remove_ipv6_port}")
         if args.wifi_stats:
             print("Wifi stats:")
             _print_wifi_stats(client.wifi_stats())
