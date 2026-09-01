@@ -239,8 +239,8 @@ Optional flags, each printed in a human-readable table:
 | `--connected_extenders` | Mesh extenders and firmware     |
 | `--connected_devices`   | Wired and wireless clients      |
 | `--firewall_settings`   | Firewall config and custom rules|
-| `--wifi_stats`          | Traffic stats per wifi band     |
-| `--wan_stats`           | Total WAN rx/tx bytes           |
+| `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
+| `--wan_stats`           | Total WAN rx/tx (MB, 1 MB = 1024*1024 bytes) |
 
 `--firewall_allow_ipv6_port PORT` is a write action, not a table: it adds two
 Custom-chain firewall rules (one per direction) that Accept ipv6 tcp/udp

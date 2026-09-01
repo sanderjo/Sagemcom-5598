@@ -331,16 +331,20 @@ def _print_firewall(fw: dict) -> None:
     )
 
 
+def _mb(num_bytes: int) -> str:
+    return f"{num_bytes / (1024 * 1024):.2f}"
+
+
 def _print_wifi_stats(stats: dict) -> None:
     rows = [
         {
             "band": band,
             "status": data["status"],
             "max_bitrate_mbps": data["max_bitrate_mbps"],
-            "rx_bytes": data["rx"]["bytes"],
+            "rx_Mbytes": _mb(data["rx"]["bytes"]),
             "rx_packets": data["rx"]["packets"],
             "rx_errors": data["rx"]["packetserrors"],
-            "tx_bytes": data["tx"]["bytes"],
+            "tx_Mbytes": _mb(data["tx"]["bytes"]),
             "tx_packets": data["tx"]["packets"],
             "tx_errors": data["tx"]["packetserrors"],
         }
@@ -350,8 +354,8 @@ def _print_wifi_stats(stats: dict) -> None:
         rows,
         columns=[
             "band", "status", "max_bitrate_mbps",
-            "rx_bytes", "rx_packets", "rx_errors",
-            "tx_bytes", "tx_packets", "tx_errors",
+            "rx_Mbytes", "rx_packets", "rx_errors",
+            "tx_Mbytes", "tx_packets", "tx_errors",
         ],
     )
 
@@ -359,16 +363,16 @@ def _print_wifi_stats(stats: dict) -> None:
 def _print_wan_stats(stats: dict) -> None:
     row = {
         "interface": "wan",
-        "rx_bytes": stats["rx"]["bytes"],
+        "rx_Mbytes": _mb(stats["rx"]["bytes"]),
         "rx_packets": stats["rx"]["packets"],
         "rx_errors": stats["rx"]["packetserrors"],
-        "tx_bytes": stats["tx"]["bytes"],
+        "tx_Mbytes": _mb(stats["tx"]["bytes"]),
         "tx_packets": stats["tx"]["packets"],
         "tx_errors": stats["tx"]["packetserrors"],
     }
     _print_table(
         [row],
-        columns=["interface", "rx_bytes", "rx_packets", "rx_errors", "tx_bytes", "tx_packets", "tx_errors"],
+        columns=["interface", "rx_Mbytes", "rx_packets", "rx_errors", "tx_Mbytes", "tx_packets", "tx_errors"],
     )
 
 

@@ -21,7 +21,7 @@ def _load(path: str) -> tuple[str, dict]:
         if not parts:
             continue
         if header is None:
-            if parts[0] in _LABEL_COLUMNS and "rx_bytes" in parts and "tx_bytes" in parts:
+            if parts[0] in _LABEL_COLUMNS and "rx_Mbytes" in parts and "tx_Mbytes" in parts:
                 header = parts
             continue
         if all(set(p) == {"-"} for p in parts):
@@ -33,10 +33,6 @@ def _load(path: str) -> tuple[str, dict]:
     if header is None:
         raise ValueError(f"{path}: no 'wifi stats' or 'wan stats' table found")
     return header[0], rows
-
-
-def _mb(num_bytes: int) -> float:
-    return num_bytes / 1_000_000
 
 
 def main() -> None:
@@ -59,14 +55,14 @@ def main() -> None:
 
     print(f"{label:<10}{'rx MB':>10}{'tx MB':>10}  notes")
     for row in rows:
-        rx_delta = int(after[row]["rx_bytes"]) - int(before[row]["rx_bytes"])
-        tx_delta = int(after[row]["tx_bytes"]) - int(before[row]["tx_bytes"])
+        rx_delta = float(after[row]["rx_Mbytes"]) - float(before[row]["rx_Mbytes"])
+        tx_delta = float(after[row]["tx_Mbytes"]) - float(before[row]["tx_Mbytes"])
         notes = []
         if rx_delta < 0:
             notes.append("rx counter reset")
         if tx_delta < 0:
             notes.append("tx counter reset")
-        print(f"{row:<10}{_mb(rx_delta):>10.2f}{_mb(tx_delta):>10.2f}  {', '.join(notes)}")
+        print(f"{row:<10}{rx_delta:>10.2f}{tx_delta:>10.2f}  {', '.join(notes)}")
 
 
 if __name__ == "__main__":
