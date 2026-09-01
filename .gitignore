@@ -1,14 +1,11 @@
 __pycache__/
 *.pyc
 
-*.har
+har-files/
 
 credentials.ini
 
-wifi_stats.before.txt
-wifi_stats.after.txt
-wan_stats.before.txt
-wan_stats.after.txt
+stats/
 
 Screenshot*.png
 
