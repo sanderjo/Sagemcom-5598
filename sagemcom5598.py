@@ -138,19 +138,27 @@ class Sagemcom5598:
 
     def connected_extenders(self) -> list[dict]:
         mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
-        return [
-            {
-                "hostname": dev.get("hostname"),
-                "model": dev.get("model"),
-                "serial_number": dev.get("serialNumber"),
-                "firmware": dev.get("softwareVersion"),
-                "ipv4": dev.get("ipv4"),
-                "uptime": dev.get("upTime"),
-                "backhaul": dev.get("backhaul"),
-            }
-            for dev in mesh.get("meshDevices", [])
-            if dev.get("type") == "extender"
-        ]
+        extenders = []
+        for dev in mesh.get("meshDevices", []):
+            if dev.get("type") != "extender":
+                continue
+            backhaul = dev.get("backhaul") or {}
+            extenders.append(
+                {
+                    "hostname": dev.get("hostname"),
+                    "model": dev.get("model"),
+                    "serial_number": dev.get("serialNumber"),
+                    "firmware": dev.get("softwareVersion"),
+                    "ipv4": dev.get("ipv4"),
+                    "uptime": dev.get("upTime"),
+                    "backhaul": backhaul,
+                    "signal_strength_dbm": {
+                        link["band"]: link.get("signalStrength")
+                        for link in backhaul.get("wifiLinks", [])
+                    },
+                }
+            )
+        return extenders
 
     def connected_devices(self) -> list[dict]:
         mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
@@ -434,9 +442,18 @@ def _cli() -> None:
     try:
         if args.connected_extenders:
             print("Connected extenders:")
+            extenders = client.connected_extenders()
+            for extender in extenders:
+                signal = extender["signal_strength_dbm"]
+                extender["signal_2.4ghz_dbm"] = signal.get("2.4")
+                extender["signal_5ghz_dbm"] = signal.get("5")
+                extender["signal_6ghz_dbm"] = signal.get("6")
             _print_table(
-                client.connected_extenders(),
-                columns=["hostname", "model", "serial_number", "firmware", "ipv4"],
+                extenders,
+                columns=[
+                    "hostname", "model", "serial_number", "firmware", "ipv4",
+                    "signal_2.4ghz_dbm", "signal_5ghz_dbm", "signal_6ghz_dbm",
+                ],
             )
             print()
         if args.connected_devices:

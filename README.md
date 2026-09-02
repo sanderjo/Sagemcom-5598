@@ -65,7 +65,8 @@ Mesh extenders and their firmware version. Source: `#/wifi/2.4GHz/priv/mesh/exte
     "firmware": "SG_W7EXT_DELTA_MLOvDrop5.5_104",
     "ipv4": "192.168.1.10",
     "uptime": "184616",
-    "backhaul": {"linkType": "Ethernet", "rootDeviceId": "ec:fc:2f:47:e7:74", "speed": 1000}
+    "backhaul": {"linkType": "Ethernet", "rootDeviceId": "ec:fc:2f:47:e7:74", "speed": 1000},
+    "signal_strength_dbm": {}
   }
 ]
 ```
@@ -91,6 +92,14 @@ aggregated backhaul link, so `wifiLinks` isn't "candidates to pick from" —
 it's signal quality per band of a link that may be using all of them at
 once. See the note under `wifi_stats()` for why none of that traffic is
 visible through this router's wifi stats API either way.
+
+`signal_strength_dbm` is a flattened convenience view of the same data —
+`{"2.4": -55, "5": -54, "6": -61}` for a Wi-Fi backhaul extender, `{}` for
+an Ethernet one. A band the extender isn't actually using for backhaul
+still shows up here (the router always reports `wifiLinks` for all three
+bands), typically as `0` dBm with `linkQuality: "BAD"` in the raw
+`backhaul` data — check `backhaul.wifiLinks` if you need `linkQuality` or
+`channel` too.
 
 ### `connected_devices()`
 
@@ -236,7 +245,7 @@ Optional flags, each printed in a human-readable table:
 
 | Flag                    | Shows                          |
 |-------------------------|---------------------------------|
-| `--connected_extenders` | Mesh extenders and firmware     |
+| `--connected_extenders` | Mesh extenders, firmware, and backhaul signal strength per band |
 | `--connected_devices`   | Wired and wireless clients      |
 | `--firewall_settings`   | Firewall config and custom rules|
 | `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
