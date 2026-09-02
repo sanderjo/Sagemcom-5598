@@ -395,7 +395,7 @@ def _topology_lines(node: dict, indent: str) -> list[str]:
 
 
 def _print_topology(tree: dict) -> None:
-    print(tree["hostname"])
+    print(f"{tree['hostname']} ({tree['ipv4']})")
     for line in _topology_lines(tree, ""):
         print(line)
 

@@ -188,7 +188,7 @@ Source: `#/wifi/2.4GHz/priv/mesh/overview`.
 The CLI (`--topology`) renders this as ASCII art instead:
 
 ```
-mygateway
+mygateway (192.168.1.254)
 |
 +-- raspizero                  192.168.1.157   wireless 2.4GHz  -67 dBm
 +-- nanopineo2                 192.168.1.109   wired
