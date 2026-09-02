@@ -37,7 +37,7 @@ class Sagemcom5598LiveTest(unittest.TestCase):
         extenders = self.client.connected_extenders()
         self.assertIsInstance(extenders, list)
         for extender in extenders:
-            for key in ("hostname", "model", "serial_number", "firmware", "ipv4", "uptime", "signal_strength_dbm"):
+            for key in ("hostname", "model", "serial_number", "firmware", "ipv4", "uptime", "parent", "signal_strength_dbm"):
                 self.assertIn(key, extender)
             self.assertIsInstance(extender["signal_strength_dbm"], dict)
 

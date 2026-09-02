@@ -138,8 +138,11 @@ class Sagemcom5598:
 
     def connected_extenders(self) -> list[dict]:
         mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
+        devices = mesh.get("meshDevices", [])
+        hostname_by_device_id = {dev.get("deviceId"): dev.get("hostname") for dev in devices}
+
         extenders = []
-        for dev in mesh.get("meshDevices", []):
+        for dev in devices:
             if dev.get("type") != "extender":
                 continue
             backhaul = dev.get("backhaul") or {}
@@ -151,6 +154,7 @@ class Sagemcom5598:
                     "firmware": dev.get("softwareVersion"),
                     "ipv4": dev.get("ipv4"),
                     "uptime": dev.get("upTime"),
+                    "parent": hostname_by_device_id.get(backhaul.get("rootDeviceId")),
                     "backhaul": backhaul,
                     "signal_strength_dbm": {
                         link["band"]: link.get("signalStrength")
@@ -462,7 +466,7 @@ def _cli() -> None:
             _print_table(
                 extenders,
                 columns=[
-                    "hostname", "model", "serial_number", "firmware", "ipv4", "uptime",
+                    "hostname", "model", "serial_number", "firmware", "ipv4", "uptime", "parent",
                     "signal_2.4ghz_dbm", "signal_5ghz_dbm", "signal_6ghz_dbm",
                 ],
             )

@@ -65,6 +65,7 @@ Mesh extenders and their firmware version. Source: `#/wifi/2.4GHz/priv/mesh/exte
     "firmware": "SG_W7EXT_DELTA_MLOvDrop5.5_104",
     "ipv4": "192.168.1.10",
     "uptime": "184616",
+    "parent": "mygateway",
     "backhaul": {"linkType": "Ethernet", "rootDeviceId": "ec:fc:2f:47:e7:74", "speed": 1000},
     "signal_strength_dbm": {}
   }
@@ -73,6 +74,14 @@ Mesh extenders and their firmware version. Source: `#/wifi/2.4GHz/priv/mesh/exte
 
 `uptime` is raw seconds as a string; the CLI table formats it as `Xd
 HH:MM:SS` (or just `HH:MM:SS` under a day).
+
+`parent` is the hostname of whatever this extender's backhaul actually
+connects to — the gateway, or (in a multi-hop mesh) another extender —
+resolved from `backhaul.rootDeviceId` against every mesh node's `deviceId`.
+This is the same parent/child data behind the topology picture at
+`#/wifi/2.4GHz/priv/mesh/overview`; chaining `parent` across extenders
+reconstructs that whole tree, e.g. extender `-525`'s `parent` is `-524`'s
+hostname, and `-524`'s `parent` is `"mygateway"`.
 
 `backhaul.linkType` is `"Ethernet"` when the extender is wired to the gateway,
 or `"Wi-Fi"` when it's wireless — in which case there's a `wifiLinks` array
@@ -248,7 +257,7 @@ Optional flags, each printed in a human-readable table:
 
 | Flag                    | Shows                          |
 |-------------------------|---------------------------------|
-| `--connected_extenders` | Mesh extenders, firmware, uptime, and backhaul signal strength per band |
+| `--connected_extenders` | Mesh extenders, firmware, uptime, mesh parent, and backhaul signal strength per band |
 | `--connected_devices`   | Wired and wireless clients      |
 | `--firewall_settings`   | Firewall config and custom rules|
 | `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
