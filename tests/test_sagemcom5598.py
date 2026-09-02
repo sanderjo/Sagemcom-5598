@@ -50,6 +50,21 @@ class Sagemcom5598LiveTest(unittest.TestCase):
                 self.assertIn(key, device)
             self.assertIn(device["connection"], ("wired", "wireless"))
 
+    def test_topology(self):
+        tree = self.client.topology()
+        self.assertIsInstance(tree, dict)
+        for key in ("hostname", "ipv4", "clients", "extenders"):
+            self.assertIn(key, tree)
+
+        def check(node):
+            self.assertIsInstance(node["clients"], list)
+            self.assertIsInstance(node["extenders"], list)
+            for extender in node["extenders"]:
+                self.assertIsInstance(extender["signal_strength_dbm"], dict)
+                check(extender)
+
+        check(tree)
+
     def test_firewall_settings(self):
         firewall = self.client.firewall_settings()
         self.assertIsInstance(firewall, dict)

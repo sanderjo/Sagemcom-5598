@@ -39,6 +39,7 @@ client.login(password="your-router-password")  # ip/login default to 192.168.1.2
 
 client.connected_extenders()
 client.connected_devices()
+client.topology()
 client.firewall_settings()
 
 client.logout()
@@ -148,6 +149,58 @@ Source: `#/wifi/2.4GHz/priv/mesh/devices`.
 
 Wired devices have `band`, `signal_strength`, `ssid` and `link_quality` set
 to `null`, and carry a `link_speed_mbps` (switch port speed) instead.
+
+### `topology()`
+
+The mesh as a tree: the gateway at the root, each extender nested under
+whatever it actually backhauls through (gateway, or another extender in a
+multi-hop mesh — see `parent` in `connected_extenders()`), with every
+node's directly-connected clients attached to it. Combines
+`connected_extenders()` and `connected_devices()` into one structure.
+Source: `#/wifi/2.4GHz/priv/mesh/overview`.
+
+```json
+{
+  "hostname": "mygateway",
+  "ipv4": "192.168.1.254",
+  "signal_strength_dbm": null,
+  "clients": [{"...": "one entry per connected_devices() item, connected_via this node"}],
+  "extenders": [
+    {
+      "hostname": "F381D-N725150C5001524",
+      "ipv4": "192.168.1.10",
+      "signal_strength_dbm": {"2.4": -48, "5": -51, "6": -60},
+      "clients": ["..."],
+      "extenders": [
+        {
+          "hostname": "F381D-N725150C5001525",
+          "ipv4": "192.168.1.11",
+          "signal_strength_dbm": {"2.4": 0, "5": -38, "6": 0},
+          "clients": ["..."],
+          "extenders": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+The CLI (`--topology`) renders this as ASCII art instead:
+
+```
+mygateway
+|
++-- raspizero                  192.168.1.157   wireless 2.4GHz  -67 dBm
++-- nanopineo2                 192.168.1.109   wired
+|
++-- F381D-N725150C5001524      192.168.1.10    extender  backhaul 2.4=-48  5=-51  6=-60 dBm
+    |
+    +-- brixit                     192.168.1.252   wired
+    |
+    +-- F381D-N725150C5001525      192.168.1.11    extender  backhaul 2.4=0  5=-38  6=0 dBm
+        |
+        +-- LT001608                   192.168.1.237   wireless 5GHz  -61 dBm
+```
 
 ### `firewall_settings()`
 
@@ -259,6 +312,7 @@ Optional flags, each printed in a human-readable table:
 |-------------------------|---------------------------------|
 | `--connected_extenders` | Mesh extenders, firmware, uptime, mesh parent, and backhaul signal strength per band |
 | `--connected_devices`   | Wired and wireless clients      |
+| `--topology`            | Mesh + clients as ASCII art (not a table — see `topology()` above) |
 | `--firewall_settings`   | Firewall config and custom rules|
 | `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
 | `--wan_stats`           | Total WAN rx/tx (MB, 1 MB = 1024*1024 bytes) |

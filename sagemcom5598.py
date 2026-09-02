@@ -207,6 +207,40 @@ class Sagemcom5598:
                     )
         return devices
 
+    def topology(self) -> dict:
+        """The mesh as a tree: the gateway at the root, each extender
+        nested under whatever it actually backhauls through (gateway or,
+        in a multi-hop mesh, another extender - see `parent` in
+        `connected_extenders()`), with every node's directly-connected
+        clients attached to it. Mirrors the picture at
+        #/wifi/2.4GHz/priv/mesh/overview."""
+        mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
+        gateway = next(dev for dev in mesh.get("meshDevices", []) if dev.get("type") == "gateway")
+
+        extenders_by_parent: dict[str, list[dict]] = {}
+        for extender in self.connected_extenders():
+            extenders_by_parent.setdefault(extender["parent"], []).append(extender)
+
+        clients_by_via: dict[str, list[dict]] = {}
+        for client in self.connected_devices():
+            clients_by_via.setdefault(client["connected_via"], []).append(client)
+        for clients in clients_by_via.values():
+            clients.sort(key=lambda c: c["connection"] != "wired")
+
+        def build(hostname: str, ipv4: str, signal_strength_dbm: dict | None) -> dict:
+            return {
+                "hostname": hostname,
+                "ipv4": ipv4,
+                "signal_strength_dbm": signal_strength_dbm,
+                "clients": clients_by_via.get(hostname, []),
+                "extenders": [
+                    build(ext["hostname"], ext["ipv4"], ext["signal_strength_dbm"])
+                    for ext in extenders_by_parent.get(hostname, [])
+                ],
+            }
+
+        return build(gateway.get("hostname"), gateway.get("ipv4"), None)
+
     def firewall_settings(self) -> dict:
         firewall = self._get_json("/api/v2/firewall")[0]["firewall"]
         custom_chain = self._get_json("/api/v2/firewall/chain", params={"chain": "Custom"})[0]
@@ -325,6 +359,47 @@ def _print_table(rows: list[dict], columns: list[str]) -> None:
         print("  ".join(str(row.get(c, "")).ljust(widths[c]) for c in columns))
 
 
+def _format_client_line(client: dict) -> str:
+    name = (client["name"] or "").ljust(26)
+    ip = (client["ip"] or "").ljust(15)
+    if client["connection"] == "wired":
+        return f"{name} {ip} wired"
+    return f"{name} {ip} wireless {client['band']}GHz  {client['signal_strength']} dBm"
+
+
+def _format_extender_line(node: dict) -> str:
+    name = node["hostname"].ljust(26)
+    ip = (node["ipv4"] or "").ljust(15)
+    backhaul = "  ".join(
+        f"{band}={node['signal_strength_dbm'].get(band)}" for band in ("2.4", "5", "6")
+    )
+    return f"{name} {ip} extender  backhaul {backhaul} dBm"
+
+
+def _topology_lines(node: dict, indent: str) -> list[str]:
+    clients = node["clients"]
+    extenders = node["extenders"]
+    if not clients and not extenders:
+        return [f"{indent}(no clients)"]
+
+    lines = []
+    if clients:
+        lines.append(f"{indent}|")
+        lines += [f"{indent}+-- {_format_client_line(c)}" for c in clients]
+    if extenders:
+        lines.append(f"{indent}|")
+        for extender in extenders:
+            lines.append(f"{indent}+-- {_format_extender_line(extender)}")
+            lines += _topology_lines(extender, indent + "    ")
+    return lines
+
+
+def _print_topology(tree: dict) -> None:
+    print(tree["hostname"])
+    for line in _topology_lines(tree, ""):
+        print(line)
+
+
 def _print_firewall(fw: dict) -> None:
     print(f"level: {fw['level']}")
     print(f"port_scan_detection: {fw['port_scan_detection']}")
@@ -418,6 +493,7 @@ def _cli() -> None:
     parser.add_argument("--username", default=None, help="router login username (default: beheer, or credentials.ini)")
     parser.add_argument("--connected_extenders", action="store_true", help="show connected extenders")
     parser.add_argument("--connected_devices", action="store_true", help="show connected devices")
+    parser.add_argument("--topology", action="store_true", help="show mesh topology as ASCII art")
     parser.add_argument("--firewall_settings", action="store_true", help="show firewall settings")
     parser.add_argument(
         "--firewall_allow_ipv6_port", type=int, default=None, metavar="PORT",
@@ -477,6 +553,9 @@ def _cli() -> None:
                 client.connected_devices(),
                 columns=["name", "ip", "mac", "connection", "band", "signal_strength", "connected_via"],
             )
+            print()
+        if args.topology:
+            _print_topology(client.topology())
             print()
         if args.firewall_settings:
             _print_firewall(client.firewall_settings())
