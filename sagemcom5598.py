@@ -343,6 +343,16 @@ def _mb(num_bytes: int) -> str:
     return f"{num_bytes / (1024 * 1024):.2f}"
 
 
+def _format_uptime(seconds: str | int) -> str:
+    total = int(seconds)
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    if days:
+        return f"{days}d {hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
 def _print_wifi_stats(stats: dict) -> None:
     rows = [
         {
@@ -448,10 +458,11 @@ def _cli() -> None:
                 extender["signal_2.4ghz_dbm"] = signal.get("2.4")
                 extender["signal_5ghz_dbm"] = signal.get("5")
                 extender["signal_6ghz_dbm"] = signal.get("6")
+                extender["uptime"] = _format_uptime(extender["uptime"])
             _print_table(
                 extenders,
                 columns=[
-                    "hostname", "model", "serial_number", "firmware", "ipv4",
+                    "hostname", "model", "serial_number", "firmware", "ipv4", "uptime",
                     "signal_2.4ghz_dbm", "signal_5ghz_dbm", "signal_6ghz_dbm",
                 ],
             )

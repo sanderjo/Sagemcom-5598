@@ -71,6 +71,9 @@ Mesh extenders and their firmware version. Source: `#/wifi/2.4GHz/priv/mesh/exte
 ]
 ```
 
+`uptime` is raw seconds as a string; the CLI table formats it as `Xd
+HH:MM:SS` (or just `HH:MM:SS` under a day).
+
 `backhaul.linkType` is `"Ethernet"` when the extender is wired to the gateway,
 or `"Wi-Fi"` when it's wireless — in which case there's a `wifiLinks` array
 instead of `speed`, with one entry per band:
@@ -245,7 +248,7 @@ Optional flags, each printed in a human-readable table:
 
 | Flag                    | Shows                          |
 |-------------------------|---------------------------------|
-| `--connected_extenders` | Mesh extenders, firmware, and backhaul signal strength per band |
+| `--connected_extenders` | Mesh extenders, firmware, uptime, and backhaul signal strength per band |
 | `--connected_devices`   | Wired and wireless clients      |
 | `--firewall_settings`   | Firewall config and custom rules|
 | `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
