@@ -56,9 +56,13 @@ paths:
       tags: [auth]
       summary: Unauthenticated router info
       description: >
-        Called before login. Returns WAN status, current router time, serial
-        number, external/internal firmware versions, uptime, and gateway IP.
-        No authentication required.
+        Called before login (and doesn't require it). Returns WAN status,
+        current router time, serial number, external/internal firmware
+        versions, uptime, and gateway IP. `uptime` here is the device's own
+        uptime since last reboot — shown on the GUI's
+        #/mybox/deviceInfo/general page — not the WAN link's uptime (see
+        `/api/v1/wan/ipv4`'s `uptime` for that). Confirmed shape: consumed
+        by `device_info()` in sagemcom5598.py.
       operationId: getOpen
       responses:
         "200":
@@ -895,8 +899,43 @@ components:
     OpenInfo:
       type: object
       description: >
-        Unauthenticated router info. Exact field names not confirmed by
-        parsing code — see prose description on the operation.
+        Unauthenticated router info. Confirmed shape — see prose description
+        on the getOpen operation.
+      properties:
+        wan_status:
+          type: string
+          example: Up
+        time:
+          type: string
+          description: Current router time, ISO 8601.
+        serial:
+          type: string
+        serial_number:
+          type: string
+          description: Same value as `serial`.
+        external_firmware_version:
+          type: string
+        internal_firmware_version:
+          type: string
+        firmware:
+          type: string
+          description: Same value as `external_firmware_version`.
+        uptime:
+          type: string
+          description: >
+            Device uptime in seconds, as a numeric string. This is the
+            device's own uptime since last reboot, not the WAN link's —
+            shown on the GUI's #/mybox/deviceInfo/general page.
+          example: "865478"
+        gateway_ip:
+          type: string
+        wan_ipv4:
+          type: string
+          example: 100.64.193.104
+        prefix_ipv6:
+          type: string
+        global_prefix_ipv6:
+          type: string
       additionalProperties: true
 
     LoginParams:

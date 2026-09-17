@@ -347,6 +347,21 @@ class Sagemcom5598:
             "tx": {k: int(v) for k, v in stats["tx"].items()},
         }
 
+    def device_info(self) -> dict:
+        """Router identity info from the unauthenticated /api/v1/open
+        endpoint (also reachable before login). `uptime` here is the
+        device's own uptime since last reboot, as shown on the GUI's
+        #/mybox/deviceInfo/general page - distinct from wan_ipv4()'s
+        uptime, which is only the WAN link's, and typically shorter."""
+        info = self._get_json("/api/v1/open")[0]
+        return {
+            "uptime": int(info["uptime"]),
+            "serial_number": info["serial_number"],
+            "firmware": info["firmware"],
+            "wan_status": info["wan_status"],
+            "wan_ipv4": info["wan_ipv4"],
+        }
+
     def wan_ipv4(self) -> dict:
         """WAN link status: connection state, public IP, gateway, uptime -
         this is what the GUI's "IP Address" / "Status" fields show."""
@@ -551,6 +566,9 @@ def _cli() -> None:
         raise SystemExit(1)
 
     print("Login OK")
+    info = client.device_info()
+    print(f"Device uptime: {_format_uptime(info['uptime'])}")
+    print(f"WAN IPv4: {info['wan_ipv4']}")
 
     try:
         if args.connected_extenders:

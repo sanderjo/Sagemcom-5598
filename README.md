@@ -53,6 +53,23 @@ Authenticates against the router using its salted challenge-response scheme
 (SHA-512-crypt of the password, mixed with a server nonce and a client
 cnonce). Raises `requests.HTTPError` on a rejected login.
 
+### `device_info()`
+
+Router identity info from the unauthenticated `/api/v1/open` endpoint
+(reachable even before login). `uptime` here is the device's own uptime
+since last reboot — what the GUI's #/mybox/deviceInfo/general page shows —
+not the WAN link's uptime (see `wan_ipv4()` for that).
+
+```json
+{
+  "uptime": 865478,
+  "serial_number": "N725115C6000105",
+  "firmware": "SGQA530011400P",
+  "wan_status": "Up",
+  "wan_ipv4": "100.64.193.104"
+}
+```
+
 ### `connected_extenders()`
 
 Mesh extenders and their firmware version. Source: `#/wifi/2.4GHz/priv/mesh/extenders`.
@@ -326,8 +343,17 @@ session at a time, so call this when you're done.
 python3 sagemcom5598.py --login "loginpassword"
 ```
 
-Prints `Login OK` on success, or `Login failed: <reason>` (wrong password,
-or no router found at the given IP) with a non-zero exit code on failure.
+On success, prints `Login OK` followed by the device uptime and WAN IPv4
+address (from `device_info()`):
+
+```
+Login OK
+Device uptime: 10d 00:24:33
+WAN IPv4: 100.64.193.104
+```
+
+On failure, prints `Login failed: <reason>` (wrong password, or no router
+found at the given IP) with a non-zero exit code.
 
 Optional flags, each printed in a human-readable table:
 
