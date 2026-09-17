@@ -292,6 +292,29 @@ or on any extender, since it's counted downstream of all of them.
 }
 ```
 
+### `wan_ipv4()`
+
+WAN link status: connection state, public IP, gateway, uptime, MAC address —
+this is what the GUI's "IP Address" / "Status" fields show.
+
+```json
+{
+  "status": "Up",
+  "addressing_type": "DHCP",
+  "address": "100.64.193.104",
+  "subnet": "255.255.192.0",
+  "gateway": "100.64.192.1",
+  "uptime": 56112,
+  "mac_address": "EC:FC:2F:47:E7:70"
+}
+```
+
+Note `100.64.0.0/10` is [CGNAT](https://en.wikipedia.org/wiki/Carrier-grade_NAT)
+space, not a public routable address — expected if your ISP shares IPv4
+addresses across subscribers. `--firewall_allow_ipv6_port` won't help make a
+service reachable from outside in that case, since there's no public IPv4 to
+forward to.
+
 ### `logout()`
 
 Ends the router session. The router only allows one authenticated LAN admin
@@ -316,6 +339,7 @@ Optional flags, each printed in a human-readable table:
 | `--firewall_settings`   | Firewall config and custom rules|
 | `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
 | `--wan_stats`           | Total WAN rx/tx (MB, 1 MB = 1024*1024 bytes) |
+| `--wan_ipv4`            | WAN link status, public IP, gateway, uptime |
 
 `--firewall_allow_ipv6_port PORT` is a write action, not a table: it adds two
 Custom-chain firewall rules (one per direction) that Accept ipv6 tcp/udp

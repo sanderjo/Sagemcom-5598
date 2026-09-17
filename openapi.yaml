@@ -1,0 +1,1156 @@
+openapi: 3.0.3
+info:
+  title: Sagemcom F@st 5598 Router API
+  description: |
+    Undocumented, unofficial REST/JSON API exposed by the Sagemcom F@st 5598
+    router (model `F5598T`, Delta Fiber firmware `SGQA530011400P`), reverse
+    engineered from HAR captures of the router's own Angular web UI
+    (`http://192.168.1.254/`) and from live testing. See `Sagemcom5598-api.md`
+    and `sagemcom5598.py` in this repository for the source of this spec.
+
+    **Response envelope.** Every endpoint returns/accepts JSON wrapped in a
+    top-level array, i.e. `GET` responses look like `[{ ... }]` — callers
+    index `[0]`. This spec models every response body as an `array` whose
+    single item is the documented object, matching that convention.
+
+    **Authentication.** Auth state is tracked server-side; there is no
+    session cookie, and only one LAN admin session is allowed at a time.
+    Callers authenticate via the two-step `login-params` / `login` handshake
+    below, after which the server associates the underlying TCP/HTTP client
+    with the session (see `login()` in `sagemcom5598.py` for the reference
+    implementation, including the SHA-512-crypt challenge/response).
+
+    **Field-name confidence.** Endpoints marked "Used" in the source doc are
+    backed by parsing code in `sagemcom5598.py`, so their schemas below
+    reflect confirmed field names. Endpoints marked "Seen" were only
+    observed in HAR captures without being parsed by the module; their
+    schemas are described from prose in `Sagemcom5598-api.md` and are
+    best-effort / loosely typed (`additionalProperties: true`) rather than
+    confirmed exact shapes.
+  version: "1.0.0"
+  license:
+    name: MIT
+servers:
+  - url: http://192.168.1.254
+    description: Default LAN gateway address
+
+tags:
+  - name: auth
+    description: Authentication & session
+  - name: system
+    description: Device / system info
+  - name: wan
+    description: WAN
+  - name: wifi
+    description: WiFi / mesh
+  - name: hosts
+    description: Hosts / DHCP
+  - name: firewall
+    description: Firewall / NAT / port forwarding
+  - name: voice
+    description: Voice (VoIP)
+
+paths:
+  /api/v1/open:
+    get:
+      tags: [auth]
+      summary: Unauthenticated router info
+      description: >
+        Called before login. Returns WAN status, current router time, serial
+        number, external/internal firmware versions, uptime, and gateway IP.
+        No authentication required.
+      operationId: getOpen
+      responses:
+        "200":
+          description: Router info
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenInfo"
+
+  /api/v2/login-params:
+    post:
+      tags: [auth]
+      summary: Step 1 of login — request salt/nonce
+      description: >
+        First step of login. Returns a per-attempt `salt` and `nonce` used to
+        compute the challenge-response hash (SHA-512-crypt of the password,
+        mixed with nonce/cnonce — see `sagemcom5598.py` for the
+        reimplementation).
+      operationId: postLoginParams
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [login]
+              properties:
+                login:
+                  type: string
+                  example: beheer
+      responses:
+        "200":
+          description: Salt and nonce for this login attempt
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LoginParams"
+
+  /api/v1/login:
+    post:
+      tags: [auth]
+      summary: Step 2 of login — submit auth key
+      description: >
+        Second step of login. `auth_key` is computed from the salt/nonce
+        returned by `/api/v2/login-params`. Returns 204 with no body on
+        success; a 400 on wrong password.
+      operationId: postLogin
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [login, auth_key, cnonce]
+              properties:
+                login:
+                  type: string
+                  example: beheer
+                auth_key:
+                  type: string
+                  description: SHA-512 hex digest computed from the login handshake.
+                cnonce:
+                  type: string
+                  description: 19-digit zero-padded random client nonce.
+      responses:
+        "204":
+          description: Login successful — session established server-side.
+        "400":
+          description: Wrong password.
+
+  /api/v1/logout:
+    post:
+      tags: [auth]
+      summary: End the authenticated session
+      operationId: postLogout
+      responses:
+        "204":
+          description: Session ended.
+
+  /api/v1/authenticated:
+    get:
+      tags: [auth]
+      summary: Check session authentication state
+      description: Used by the UI to check session state on page load/refresh.
+      operationId: getAuthenticated
+      responses:
+        "200":
+          description: Authentication state
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    authenticated:
+                      type: boolean
+                  example:
+                    authenticated: true
+
+  /api/v1/session-count:
+    get:
+      tags: [auth]
+      summary: Number of active admin sessions
+      description: The router allows only one active admin session at a time.
+      operationId: getSessionCount
+      responses:
+        "200":
+          description: Session count
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    sessions:
+                      type: integer
+                  example:
+                    sessions: 1
+
+  /api/v1/session-timeout:
+    get:
+      tags: [auth]
+      summary: Idle session timeout
+      operationId: getSessionTimeout
+      responses:
+        "200":
+          description: Idle session timeout, in minutes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timeout:
+                      type: string
+                      description: Minutes, as a numeric string.
+                  example:
+                    timeout: "10"
+
+  /api/v1/user:
+    get:
+      tags: [auth]
+      summary: Admin user list
+      operationId: getUser
+      responses:
+        "200":
+          description: Admin user(s)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user:
+                      type: string
+                    role:
+                      type: string
+                    requirePasswordChange:
+                      type: boolean
+                  example:
+                    user: beheer
+                    role: support-user
+                    requirePasswordChange: true
+
+  /api/v1/device/features:
+    get:
+      tags: [system]
+      summary: Feature/module capability flags
+      description: >
+        Feature/module flags used to drive the UI (e.g. `wifi` enabled,
+        `guest` submodule, `bandsteering` submodule, etc.) — a capability
+        map rather than live state. Exact shape not confirmed by parsing
+        code; treat as a free-form map.
+      operationId: getDeviceFeatures
+      responses:
+        "200":
+          description: Feature capability map
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v1/ui/language:
+    get:
+      tags: [system]
+      summary: UI language (non-functional on this firmware)
+      description: >
+        Consistently returns a 400 exception (`domain: /api/v1/ui/language`)
+        in captures — endpoint exists but appears unimplemented/unsupported
+        on this firmware.
+      operationId: getUiLanguage
+      responses:
+        "400":
+          description: Always returned on this firmware — endpoint appears unimplemented.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/wan/status:
+    get:
+      tags: [wan]
+      summary: Minimal WAN link status
+      operationId: getWanStatus
+      responses:
+        "200":
+          description: WAN link status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+                      example: Up
+                    lastchange:
+                      type: integer
+                      description: Seconds since last status change.
+
+  /api/v1/wan/ipv4:
+    get:
+      tags: [wan]
+      summary: Full WAN IPv4 configuration/state
+      description: >
+        Addressing type (DHCP/static), WAN mode, address, subnet, gateway,
+        uptime, MAC address, PPP username/password (empty when using DHCP).
+        This is what the GUI's "IP Address" / "Status" fields show. Confirmed
+        shape: response is nested under `wan.ipv4`; consumed by `wan_ipv4()`
+        in sagemcom5598.py.
+      operationId: getWanIpv4
+      responses:
+        "200":
+          description: WAN IPv4 config/state
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    wan:
+                      type: object
+                      properties:
+                        ipv4:
+                          type: object
+                          properties:
+                            addressing_type:
+                              type: string
+                              example: DHCP
+                            wanMode:
+                              type: string
+                              example: AUTO
+                            address:
+                              type: string
+                              example: 100.64.193.104
+                            subnet:
+                              type: string
+                              example: 255.255.192.0
+                            gateway:
+                              type: string
+                              example: 100.64.192.1
+                            uptime:
+                              type: integer
+                              description: Seconds since the WAN link came up.
+                            mac_address:
+                              type: string
+                              example: "EC:FC:2F:47:E7:70"
+                            status:
+                              type: string
+                              example: Up
+                            username:
+                              type: string
+                              description: PPP username, empty when using DHCP.
+                            password:
+                              type: string
+                              description: PPP password, empty when using DHCP.
+                          additionalProperties: true
+
+  /api/v1/wan/ip/stats:
+    get:
+      tags: [wan]
+      summary: Total WAN rx/tx byte and packet counters
+      description: >
+        Downstream of every wired and wireless client on the gateway and all
+        mesh extenders — correctly reflects traffic from extender-connected
+        clients that the per-band `/api/v2/wireless/stats/{band}` endpoint
+        cannot see. Confirmed shape: response is nested under
+        `wan.ip.stats`.
+      operationId: getWanIpStats
+      responses:
+        "200":
+          description: WAN traffic counters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    wan:
+                      type: object
+                      properties:
+                        ip:
+                          type: object
+                          properties:
+                            stats:
+                              type: object
+                              properties:
+                                rx:
+                                  $ref: "#/components/schemas/TrafficCounters"
+                                tx:
+                                  $ref: "#/components/schemas/TrafficCounters"
+
+  /api/v2/home:
+    get:
+      tags: [wifi]
+      summary: Per-band SSID summary
+      description: >
+        SSID name, security protocol (e.g. `WPA2_WPA3_PERSONAL`), plaintext
+        password, up/down status, max bitrate, and SSID type
+        (`Primary`/`Guest`) per radio (`2_4GHZ`/`5GHZ`/`6GHZ`). Exact field
+        shape not confirmed by parsing code; treat as a free-form map.
+
+        **Security note:** this endpoint returns the WiFi password in
+        plaintext — handle responses accordingly.
+      operationId: getHome
+      responses:
+        "200":
+          description: Per-band SSID summary
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v1/wireless/bandsteering:
+    get:
+      tags: [wifi]
+      summary: Band steering enabled state
+      operationId: getBandsteering
+      responses:
+        "200":
+          description: Band steering state
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    BandSteeringEnable:
+                      type: boolean
+
+  /api/v2/wireless/stats/{band}:
+    get:
+      tags: [wifi]
+      summary: Per-SSID traffic counters
+      description: >
+        `{band}` is a path segment, not a query param. Confirmed codes:
+        `24`/`5`/`6` for the primary SSID per band; `guest24`/`guest5`/`guest6`
+        for the guest SSID; `backhaul24`/`backhaul5`/`backhaul6` for the mesh
+        backhaul SSID — the `backhaul*` variants always return 400 on this
+        firmware, so backhaul traffic cannot be read via this endpoint.
+        Only ever reports the **gateway's own** radios — traffic on an
+        extender's own radio, and gateway↔extender backhaul traffic, never
+        shows up here (use `/api/v1/wan/ip/stats` for that).
+      operationId: getWirelessStats
+      parameters:
+        - name: band
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - "24"
+              - "5"
+              - "6"
+              - guest24
+              - guest5
+              - guest6
+              - backhaul24
+              - backhaul5
+              - backhaul6
+          description: >
+            Primary SSID (`24`/`5`/`6`), guest SSID (`guest24`/`guest5`/`guest6`),
+            or mesh backhaul SSID (`backhaul24`/`backhaul5`/`backhaul6` —
+            always 400 on this firmware).
+      responses:
+        "200":
+          description: Per-SSID traffic counters (primary and guest bands)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    wireless:
+                      type: object
+                      properties:
+                        ssid:
+                          type: object
+                          properties:
+                            status:
+                              type: string
+                            maxbitrate:
+                              type: string
+                            stats:
+                              type: object
+                              properties:
+                                rx:
+                                  $ref: "#/components/schemas/TrafficCounters"
+                                tx:
+                                  $ref: "#/components/schemas/TrafficCounters"
+        "400":
+          description: Always returned for `backhaul24`/`backhaul5`/`backhaul6` on this firmware.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v4/easymesh/meshdevices:
+    get:
+      tags: [wifi]
+      summary: Full mesh topology, per-node radios, and connected clients
+      description: >
+        One entry per mesh node (gateway + extenders) with hostname, model,
+        serial number, firmware, uptime, IPv4, backhaul link info (Ethernet
+        with speed, or Wi-Fi with per-band `wifiLinks` incl.
+        channel/quality/RSSI), plus nested `wifiRadios` → `ssids` →
+        `stations` (wireless clients) and `ethernetPorts` → `neighbours`
+        (wired clients). This single endpoint backs `connected_extenders()`,
+        `connected_devices()`, and `topology()` in `sagemcom5598.py`.
+      operationId: getMeshDevices
+      responses:
+        "200":
+          description: Mesh topology and connected clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    meshDevices:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/MeshDevice"
+
+  /api/v2/wireless/mlo/state:
+    get:
+      tags: [wifi]
+      summary: Multi-Link Operation (MLO) enabled state
+      description: >
+        Backs the Angular UI page at `#/wifi/2.4GHz/priv/advanced/mlo-settings`
+        (and the equivalent `5GHz`/`6GHz` routes — MLO is a single tri-band
+        setting, not per-radio). `mlo_state` is `"1"` when MLO is Enabled,
+        presumably `"0"` when Disabled.
+      operationId: getMloState
+      responses:
+        "200":
+          description: MLO state
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_config:
+                      type: string
+                      example: "true"
+                    mlo_state:
+                      type: string
+                      description: '"1" = Enabled, presumably "0" = Disabled.'
+                      example: "1"
+
+  /api/v1/wifi_mlo_enable:
+    put:
+      tags: [wifi]
+      summary: Enable/disable MLO (reboots the gateway)
+      description: >
+        Named in the minified JS bundle (`mloEnable` route constant) as the
+        endpoint that flips MLO on/off; per the UI's own warning strings this
+        reboots the gateway automatically, so it was **not** exercised live
+        and the request/response body is not reverse-engineered. `GET` on
+        this path returns 400 (write-only endpoint).
+      operationId: putWifiMloEnable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Body not reverse-engineered.
+      responses:
+        default:
+          description: Not reverse-engineered — reboots the gateway on success.
+    get:
+      tags: [wifi]
+      summary: (Write-only endpoint — GET not supported)
+      operationId: getWifiMloEnable
+      responses:
+        "400":
+          description: Write-only endpoint; GET always returns 400.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v2/wireless/mlo_supported:
+    get:
+      tags: [wifi]
+      summary: Whether the gateway supports MLO
+      description: >
+        Named in the JS bundle (`mloSupported` route constant), presumably
+        reports whether the gateway's hardware/firmware supports MLO at all.
+        Returns 400 on a bare `GET` against this router (which does support
+        MLO) — likely needs a query param (e.g. a radio/band) not yet
+        reverse-engineered.
+      operationId: getMloSupported
+      responses:
+        "400":
+          description: Always returned on a bare GET — a required query param has not been identified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/hosts:
+    get:
+      tags: [hosts]
+      summary: Full known-host list
+      description: >
+        Not just currently-connected devices: device type, mesh device id,
+        MAC, interface, DHCP lease time, link state, hostname/friendly name,
+        IPv6 addresses, active flag, internal id. Broader/lower-level than
+        the mesh-derived device list from `/api/v4/easymesh/meshdevices`.
+        Exact field shape not confirmed by parsing code; treat as a
+        free-form map.
+      operationId: getHosts
+      responses:
+        "200":
+          description: Known hosts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v1/dhcp:
+    get:
+      tags: [hosts]
+      summary: DHCP server configuration
+      description: >
+        Enabled state, address pool (`minaddress`/`maxaddress`), lease time,
+        router IP, subnet mask, plus a `reservedpools` list (static DHCP
+        reservations). Exact field shape not confirmed by parsing code;
+        treat as a free-form map.
+      operationId: getDhcp
+      responses:
+        "200":
+          description: DHCP server config
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v2/firewall:
+    get:
+      tags: [firewall]
+      summary: Global firewall configuration
+      description: >
+        Security `level`, port-scan detection, fragmented-IP-packet
+        blocking, plus a `services_capabilities` list of well-known
+        service/port definitions used by the UI's rule editor.
+      operationId: getFirewall
+      responses:
+        "200":
+          description: Global firewall config
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    firewall:
+                      type: object
+                      properties:
+                        level:
+                          type: string
+                        port_scan_detection:
+                          type: boolean
+                        block_fragmented_ip_packets:
+                          type: boolean
+                        services_capabilities:
+                          type: array
+                          items:
+                            type: object
+                            additionalProperties: true
+
+  /api/v2/firewall/chain:
+    get:
+      tags: [firewall]
+      summary: A named firewall chain (e.g. "Custom")
+      description: >
+        Enabled flag, default policy (`Accept`/`Drop`), and the list of
+        user-defined rules (alias, description, enable, action, protocol,
+        src/dst IP, ports, and interface, IPv4 vs IPv6).
+      operationId: getFirewallChain
+      parameters:
+        - name: chain
+          in: query
+          required: true
+          schema:
+            type: string
+            example: Custom
+      responses:
+        "200":
+          description: Firewall chain config and rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    enable:
+                      type: boolean
+                    default_policy:
+                      type: string
+                      enum: [Accept, Drop]
+                    rules:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/FirewallRuleRaw"
+
+  /api/v2/firewall/chain/rules:
+    post:
+      tags: [firewall]
+      summary: Add a rule to a firewall chain
+      description: >
+        Adds one rule to the "Custom" chain. `id`/`alias` are auto-assigned
+        server-side (`cpe-<n>`, monotonically increasing, never reused even
+        after a rule is later removed). To open a port bidirectionally (as
+        the web UI's IPv6 "allow port" quick action does), POST twice — once
+        per direction: `lan`→`wan` with `src_ports`=port, and `wan`→`lan`
+        with `dst_ports`=port.
+      operationId: postFirewallChainRule
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/FirewallRuleCreate"
+      responses:
+        "204":
+          description: Rule added.
+
+  /api/v2/firewall/chain/rules/{id}:
+    delete:
+      tags: [firewall]
+      summary: Remove a rule from a firewall chain
+      description: >
+        Removes one rule from the "Custom" chain by its server-assigned
+        `id`. The web UI's remove action deletes both rules of a port-allow
+        pair by id (e.g. `13` and `14` for a port added as one
+        `lan`→`wan`/`wan`→`lan` pair).
+      operationId: deleteFirewallChainRule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: cpe-13
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [chain]
+              properties:
+                chain:
+                  type: string
+                  example: Custom
+      responses:
+        "204":
+          description: Rule removed.
+
+  /api/v1/firewall/portblacklist:
+    get:
+      tags: [firewall]
+      summary: Ports blocked outright
+      description: >
+        Comma-separated list of ports blocked regardless of other rules,
+        e.g. `5060,5061,7547,68,443,8022`.
+      operationId: getFirewallPortblacklist
+      responses:
+        "200":
+          description: Blacklisted ports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                  description: >
+                    Observed as a comma-separated string of ports; exact
+                    wrapping key not confirmed by parsing code.
+
+  /api/v1/nat/rules:
+    get:
+      tags: [firewall]
+      summary: Port-forwarding (NAT) rules
+      description: >
+        Enabled flag plus a `rules` list (empty in captures — no port
+        forwards configured at capture time). Exact rule field shape not
+        confirmed by parsing code.
+      operationId: getNatRules
+      responses:
+        "200":
+          description: NAT rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    rules:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: true
+
+  /api/v1/upnp/igd:
+    get:
+      tags: [firewall]
+      summary: UPnP Internet Gateway Device settings
+      description: >
+        Link state, enabled flag, device UUID, SSDP advertisement
+        interval/TTL. Exact field shape not confirmed by parsing code;
+        treat as a free-form map.
+      operationId: getUpnpIgd
+      responses:
+        "200":
+          description: UPnP IGD settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v1/voice/info:
+    get:
+      tags: [voice]
+      summary: Voice module type and per-line active flags
+      description: >
+        Voice module type (`modelVoiceType`, e.g. `TR104v1`) and a per-line
+        active flag list. Exact field shape not confirmed by parsing code;
+        treat as a free-form map.
+      operationId: getVoiceInfo
+      responses:
+        "200":
+          description: Voice module info
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v1/voice/v1/lines:
+    get:
+      tags: [voice]
+      summary: Detailed per-line VoIP config/state
+      description: >
+        Profiles → lines, each with id, enabled flag, display name, call
+        state, call-waiting flag, and more. Exact field shape not confirmed
+        by parsing code; treat as a free-form map.
+      operationId: getVoiceLines
+      responses:
+        "200":
+          description: VoIP line config/state
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+components:
+  schemas:
+    ApiError:
+      type: object
+      description: Observed exception shape for endpoints that return a 400.
+      properties:
+        domain:
+          type: string
+          example: /api/v1/ui/language
+      additionalProperties: true
+
+    OpenInfo:
+      type: object
+      description: >
+        Unauthenticated router info. Exact field names not confirmed by
+        parsing code — see prose description on the operation.
+      additionalProperties: true
+
+    LoginParams:
+      type: object
+      properties:
+        salt:
+          type: string
+          description: 8-16 byte salt used in the SHA-512-crypt challenge.
+        nonce:
+          type: string
+          description: Per-attempt server nonce.
+      required: [salt, nonce]
+
+    TrafficCounters:
+      type: object
+      description: >
+        Byte/packet counters as returned by the router. Values are numeric
+        strings in the raw JSON (confirmed by `wan_stats()` in
+        `sagemcom5598.py`, which casts every value with `int()`).
+      properties:
+        bytes:
+          type: string
+          example: "123456789"
+        packets:
+          type: string
+          example: "12345"
+        packetserrors:
+          type: string
+          example: "0"
+        discards:
+          type: string
+        unicastpackets:
+          type: string
+        multicastpackets:
+          type: string
+        broadcastpackets:
+          type: string
+      additionalProperties:
+        type: string
+
+    MeshDevice:
+      type: object
+      description: One mesh node (the gateway, or an extender).
+      properties:
+        deviceId:
+          type: string
+        hostname:
+          type: string
+        type:
+          type: string
+          enum: [gateway, extender]
+        model:
+          type: string
+        serialNumber:
+          type: string
+        softwareVersion:
+          type: string
+          description: Firmware version.
+        ipv4:
+          type: string
+        upTime:
+          type: integer
+          description: Seconds.
+        backhaul:
+          type: object
+          description: Present on extenders; how this node reaches the gateway.
+          properties:
+            rootDeviceId:
+              type: string
+              description: deviceId of the parent node this extender backhauls through.
+            speed:
+              type: string
+              description: Link speed, when backhaul is wired Ethernet.
+            wifiLinks:
+              type: array
+              description: Present when backhaul is Wi-Fi.
+              items:
+                type: object
+                properties:
+                  band:
+                    type: string
+                    example: "5"
+                  channel:
+                    type: integer
+                  quality:
+                    type: string
+                  signalStrength:
+                    type: integer
+                    description: RSSI, in dBm.
+          additionalProperties: true
+        wifiRadios:
+          type: array
+          items:
+            type: object
+            properties:
+              band:
+                type: string
+                example: "5"
+              ssids:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ssid:
+                      type: string
+                    stations:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/WirelessStation"
+        ethernetPorts:
+          type: array
+          items:
+            type: object
+            properties:
+              speed:
+                type: string
+              neighbours:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EthernetNeighbour"
+      additionalProperties: true
+
+    WirelessStation:
+      type: object
+      description: A wireless client connected to a mesh node's radio/SSID.
+      properties:
+        hostName:
+          type: string
+        friendlyname:
+          type: string
+        macAddress:
+          type: string
+        ipv4Address:
+          type: string
+        signalStrength:
+          type: integer
+          description: dBm.
+        linkQuality:
+          type: string
+      additionalProperties: true
+
+    EthernetNeighbour:
+      type: object
+      description: A wired client connected to a mesh node's Ethernet port.
+      properties:
+        hostName:
+          type: string
+        friendlyname:
+          type: string
+        macAddress:
+          type: string
+        ipv4Address:
+          type: string
+      additionalProperties: true
+
+    FirewallRuleRaw:
+      type: object
+      description: A single custom firewall chain rule, as returned by the router.
+      properties:
+        id:
+          type: string
+          example: cpe-13
+        alias:
+          type: string
+        description:
+          type: string
+        enable:
+          type: boolean
+        action:
+          type: string
+          enum: [Accept, Drop]
+        protocol:
+          type: string
+          example: tcp,udp
+        ip_protocol:
+          type: string
+          enum: [ipv4, ipv6]
+        src_ip:
+          type: string
+          nullable: true
+        src_ports:
+          type: integer
+          description: -1 = any.
+        src_intf:
+          type: string
+          enum: [lan, wan]
+        dst_ip:
+          type: string
+          nullable: true
+        dst_ports:
+          type: integer
+          description: -1 = any.
+        dst_intf:
+          type: string
+          enum: [lan, wan]
+
+    FirewallRuleCreate:
+      type: object
+      description: Form-encoded body for adding a Custom-chain firewall rule.
+      required:
+        - chain
+        - enable
+        - action
+        - description
+        - service
+        - protocol
+        - src_ports
+        - dst_ports
+        - src_port_range_max
+        - dst_port_range_max
+        - src_intf
+        - dst_intf
+        - ip_protocol
+        - order
+      properties:
+        chain:
+          type: string
+          example: Custom
+        enable:
+          type: integer
+          enum: [0, 1]
+        action:
+          type: string
+          enum: [Accept, Drop]
+        description:
+          type: string
+        service:
+          type: string
+          example: NONE
+        protocol:
+          type: string
+          example: tcp,udp
+        src_ports:
+          type: integer
+          description: -1 = any.
+        dst_ports:
+          type: integer
+          description: -1 = any.
+        src_port_range_max:
+          type: integer
+          description: -1 = unused.
+        dst_port_range_max:
+          type: integer
+          description: -1 = unused.
+        src_intf:
+          type: string
+          enum: [lan, wan]
+        dst_intf:
+          type: string
+          enum: [lan, wan]
+        ip_protocol:
+          type: string
+          enum: [ipv4, ipv6]
+        order:
+          type: integer
+          description: Rule priority. The UI's "allow port" quick action always sends 6.
+          example: 6

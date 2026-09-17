@@ -93,6 +93,13 @@ class Sagemcom5598LiveTest(unittest.TestCase):
             self.assertIsInstance(direction["bytes"], int)
             self.assertIsInstance(direction["packets"], int)
 
+    def test_wan_ipv4(self):
+        ipv4 = self.client.wan_ipv4()
+        self.assertIsInstance(ipv4, dict)
+        for key in ("status", "addressing_type", "address", "subnet", "gateway", "uptime", "mac_address"):
+            self.assertIn(key, ipv4)
+        self.assertIsInstance(ipv4["uptime"], int)
+
 
 if __name__ == "__main__":
     unittest.main()

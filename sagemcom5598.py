@@ -347,6 +347,20 @@ class Sagemcom5598:
             "tx": {k: int(v) for k, v in stats["tx"].items()},
         }
 
+    def wan_ipv4(self) -> dict:
+        """WAN link status: connection state, public IP, gateway, uptime -
+        this is what the GUI's "IP Address" / "Status" fields show."""
+        ipv4 = self._get_json("/api/v1/wan/ipv4")[0]["wan"]["ipv4"]
+        return {
+            "status": ipv4["status"],
+            "addressing_type": ipv4["addressing_type"],
+            "address": ipv4["address"],
+            "subnet": ipv4["subnet"],
+            "gateway": ipv4["gateway"],
+            "uptime": int(ipv4["uptime"]),
+            "mac_address": ipv4["mac_address"],
+        }
+
 
 def _print_table(rows: list[dict], columns: list[str]) -> None:
     if not rows:
@@ -473,6 +487,14 @@ def _print_wan_stats(stats: dict) -> None:
     )
 
 
+def _print_wan_ipv4(ipv4: dict) -> None:
+    print(f"status: {ipv4['status']}")
+    print(f"address: {ipv4['address']} ({ipv4['addressing_type']}, subnet {ipv4['subnet']})")
+    print(f"gateway: {ipv4['gateway']}")
+    print(f"uptime: {_format_uptime(ipv4['uptime'])}")
+    print(f"mac_address: {ipv4['mac_address']}")
+
+
 def _load_credentials_ini() -> dict:
     if not _CREDENTIALS_INI.is_file():
         return {}
@@ -505,6 +527,7 @@ def _cli() -> None:
     )
     parser.add_argument("--wifi_stats", action="store_true", help="show wifi stats for 2.4/5/6 GHz bands")
     parser.add_argument("--wan_stats", action="store_true", help="show total WAN rx/tx bytes")
+    parser.add_argument("--wan_ipv4", action="store_true", help="show WAN link status, public IP, gateway, uptime")
     args = parser.parse_args()
 
     ini = _load_credentials_ini()
@@ -572,6 +595,10 @@ def _cli() -> None:
         if args.wan_stats:
             print("Wan stats:")
             _print_wan_stats(client.wan_stats())
+            print()
+        if args.wan_ipv4:
+            print("Wan ipv4:")
+            _print_wan_ipv4(client.wan_ipv4())
     finally:
         client.logout()
 
