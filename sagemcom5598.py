@@ -567,6 +567,8 @@ def _cli() -> None:
 
     print("Login OK")
     info = client.device_info()
+    print(f"Serial number: {info['serial_number']}")
+    print(f"Software version: {info['firmware']}")
     print(f"Device uptime: {_format_uptime(info['uptime'])}")
     print(f"WAN IPv4: {info['wan_ipv4']}")
 

@@ -343,11 +343,13 @@ session at a time, so call this when you're done.
 python3 sagemcom5598.py --login "loginpassword"
 ```
 
-On success, prints `Login OK` followed by the device uptime and WAN IPv4
-address (from `device_info()`):
+On success, prints `Login OK` followed by identity/status info (from
+`device_info()`):
 
 ```
 Login OK
+Serial number: N725115C6000105
+Software version: SGQA530011400P
 Device uptime: 10d 00:24:33
 WAN IPv4: 100.64.193.104
 ```
