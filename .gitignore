@@ -10,3 +10,6 @@ stats/
 Screenshot*.png
 
 .DS_Store
+
+# copy of the ESP32 board filesystem (contains wifi passwords)
+esp32-backup/
