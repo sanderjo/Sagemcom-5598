@@ -12,6 +12,7 @@
 
 static const char *TAG = "wifi";
 static EventGroupHandle_t s_events;
+static esp_netif_t *s_netif;
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -26,6 +27,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         wifi_event_sta_connected_t *ev = data;
         ESP_LOGI(TAG, "associated with %02x:%02x:%02x:%02x:%02x:%02x on channel %d",
                  ev->bssid[0], ev->bssid[1], ev->bssid[2], ev->bssid[3], ev->bssid[4], ev->bssid[5], ev->channel);
+        // An IPv6 link-local address lets mDNS answer AAAA queries too; without one,
+        // Linux's nss-mdns waits 5 s for that answer on every lookup of the .local name.
+        esp_netif_create_ip6_linklocal(s_netif);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = data;
         ESP_LOGI(TAG, "got IP " IPSTR ", gateway " IPSTR, IP2STR(&ev->ip_info.ip), IP2STR(&ev->ip_info.gw));
@@ -45,8 +49,8 @@ esp_err_t wifi_connect(const char *ssid, const char *password, int timeout_ms)
     s_events = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_t *netif = esp_netif_create_default_wifi_sta();
-    esp_netif_set_hostname(netif, "sagemcom-mcp");
+    s_netif = esp_netif_create_default_wifi_sta();
+    esp_netif_set_hostname(s_netif, "sagemcom-mcp");
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&init));

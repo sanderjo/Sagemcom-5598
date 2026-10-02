@@ -15,6 +15,12 @@
 static const char *TAG = "router";
 static char s_base[48];
 static char s_cookies[MAX_COOKIES][160];  // "name=value"
+static void (*s_request_hook)(void);
+
+void router_set_request_hook(void (*hook)(void))
+{
+    s_request_hook = hook;
+}
 
 typedef struct {
     router_resp_t *resp;
@@ -63,6 +69,7 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
 static esp_err_t request(esp_http_client_method_t method, const char *path, const char *form, router_resp_t *resp)
 {
     char url[128], cookie_header[MAX_COOKIES * 162] = "", referer[64];
+    if (s_request_hook) s_request_hook();
     snprintf(url, sizeof(url), "%s%s", s_base, path);
     snprintf(referer, sizeof(referer), "%s/", s_base);
     for (int i = 0; i < MAX_COOKIES; i++) {

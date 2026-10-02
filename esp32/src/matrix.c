@@ -1,4 +1,6 @@
 #include "matrix.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "esp_err.h"
 #include "led_strip.h"
 
@@ -6,6 +8,7 @@
 #define MATRIX_LEDS 64
 
 static led_strip_handle_t s_strip;
+static SemaphoreHandle_t s_lock;  // status, tool and activity updates come from different tasks
 
 void matrix_init(void)
 {
@@ -18,20 +21,28 @@ void matrix_init(void)
         .resolution_hz = 10 * 1000 * 1000,
     };
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &s_strip));
+    s_lock = xSemaphoreCreateMutex();
     led_strip_clear(s_strip);
 }
 
 void matrix_fill(uint8_t r, uint8_t g, uint8_t b)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     for (int i = 0; i < MATRIX_LEDS; i++) led_strip_set_pixel(s_strip, i, r, g, b);
+    xSemaphoreGive(s_lock);
 }
 
 void matrix_set(int row, int col, uint8_t r, uint8_t g, uint8_t b)
 {
-    if (row >= 0 && row < 8 && col >= 0 && col < 8) led_strip_set_pixel(s_strip, row * 8 + col, r, g, b);
+    if (row < 0 || row >= 8 || col < 0 || col >= 8) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    led_strip_set_pixel(s_strip, row * 8 + col, r, g, b);
+    xSemaphoreGive(s_lock);
 }
 
 void matrix_show(void)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     led_strip_refresh(s_strip);
+    xSemaphoreGive(s_lock);
 }

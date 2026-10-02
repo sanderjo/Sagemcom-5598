@@ -1,6 +1,8 @@
 // Sagemcom 5598 MCP server on an ESP32-S3. Row 0 of the LED matrix shows
 // status (col 0 crypt self-test, 1 wifi, 2 router login at boot, 3 MCP
 // server, 4 last tool call): yellow = busy, green = OK, red = failed.
+// Row 3: left blinks blue while an MCP request is handled, right flashes
+// green for every connection to the router.
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -11,6 +13,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "mdns.h"
+#include "activity.h"
 #include "matrix.h"
 #include "mcp_http.h"
 #include "nicknames.h"
@@ -85,6 +88,8 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP32-S3: flash %lu KB, PSRAM free %u KB", (unsigned long)(flash_size / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
     matrix_init();
+    activity_start();
+    router_set_request_hook(activity_router);
 
     status(STEP_CRYPT, BUSY);
     status(STEP_CRYPT, crypt_self_test() ? OK : FAILED);
@@ -110,6 +115,7 @@ void app_main(void)
         .nicknames = NICKNAMES,
         .nickname_count = NICKNAME_COUNT,
         .on_tool = on_tool,
+        .on_request = activity_mcp,
     };
     status(STEP_SERVER, BUSY);
     status(STEP_SERVER, mcp_http_start(&mcp) == ESP_OK ? OK : FAILED);

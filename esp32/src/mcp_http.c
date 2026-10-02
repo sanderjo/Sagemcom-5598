@@ -120,6 +120,8 @@ static int origin_ok(httpd_req_t *req)
     return strcmp(origin, own) == 0;
 }
 
+static esp_err_t handle_post(httpd_req_t *req);
+
 static esp_err_t mcp_post(httpd_req_t *req)
 {
     if (!origin_ok(req)) return send_text(req, "403 Forbidden", "origin not allowed\n");
@@ -127,6 +129,14 @@ static esp_err_t mcp_post(httpd_req_t *req)
         httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer realm=\"sagemcom5598\"");
         return send_text(req, "401 Unauthorized", "missing or wrong bearer token\n");
     }
+    if (s_config.on_request) s_config.on_request(1);
+    esp_err_t e = handle_post(req);
+    if (s_config.on_request) s_config.on_request(0);
+    return e;
+}
+
+static esp_err_t handle_post(httpd_req_t *req)
+{
     if (req->content_len == 0 || req->content_len > MAX_BODY)
         return send_text(req, "413 Payload Too Large", "body must be 1..65536 bytes\n");
 

@@ -13,4 +13,6 @@ typedef struct {
 esp_err_t router_login(const char *ip, const char *login, const char *password);
 esp_err_t router_get(const char *path, router_resp_t *resp);
 void router_logout(void);
+// called at the start of every HTTP request to the router (e.g. for an activity LED)
+void router_set_request_hook(void (*hook)(void));
 void router_free(router_resp_t *resp);

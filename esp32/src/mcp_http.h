@@ -11,6 +11,8 @@ typedef struct {
     size_t nickname_count;
     // state 0 = busy, 1 = ok, 2 = failed (for the LED matrix); may be NULL
     void (*on_tool)(const char *name, int state);
+    // 1 when an authorized MCP request starts, 0 when it is answered; may be NULL
+    void (*on_request)(int begin);
 } mcp_http_config_t;
 
 esp_err_t mcp_http_start(const mcp_http_config_t *config);
