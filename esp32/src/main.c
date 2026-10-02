@@ -1,5 +1,5 @@
 // Wifi + router login test. Row 0 of the LED matrix shows progress per step
-// (col 0 crypt self-test, 1 wifi, 2 router login, 3 WAN data):
+// (col 0 crypt self-test, 1 wifi, 2 router login, 3 WAN data, 4 mesh views):
 // yellow = busy, green = OK, red = failed.
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +12,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "matrix.h"
+#include "mesh.h"
+#include "nicknames.h"
 #include "router.h"
 #include "secrets.h"
 #include "sha512crypt.h"
@@ -19,7 +21,7 @@
 
 #define LEVEL 5  // the LEDs are very bright
 
-enum { STEP_CRYPT, STEP_WIFI, STEP_LOGIN, STEP_WAN };
+enum { STEP_CRYPT, STEP_WIFI, STEP_LOGIN, STEP_WAN, STEP_MESH };
 enum { BUSY, OK, FAILED };
 
 static const char *TAG = "main";
@@ -67,6 +69,78 @@ static void show_wan_ipv4(void)
     router_free(&r);
 }
 
+static const char *str(const cJSON *obj, const char *key)
+{
+    const char *s = cJSON_GetStringValue(cJSON_GetObjectItem(obj, key));
+    return s ? s : "-";
+}
+
+// "name (nickname)" like the Python CLI's with_nickname()
+static const char *named(const cJSON *obj, const char *key, const char *nick_key, char *buf, size_t size)
+{
+    const char *nick = cJSON_GetStringValue(cJSON_GetObjectItem(obj, nick_key));
+    if (nick) snprintf(buf, size, "%s (%s)", str(obj, key), nick);
+    else snprintf(buf, size, "%s", str(obj, key));
+    return buf;
+}
+
+static void print_node(const cJSON *node, int depth)
+{
+    char name[96], client[96];
+    const cJSON *c, *ext, *dbm = cJSON_GetObjectItem(node, "signal_strength_dbm");
+    char *signal = cJSON_GetArraySize(dbm) ? cJSON_PrintUnformatted(dbm) : NULL;
+    ESP_LOGI(TAG, "%*s%s %s %s%s%s", depth * 4, "", named(node, "hostname", "nickname", name, sizeof(name)),
+             str(node, "ipv4"), cJSON_IsString(cJSON_GetObjectItem(node, "backhaul_type")) ? str(node, "backhaul_type") : "",
+             signal ? " " : "", signal ? signal : "");
+    cJSON_free(signal);
+    cJSON_ArrayForEach(c, cJSON_GetObjectItem(node, "clients")) {
+        const cJSON *dbm_c = cJSON_GetObjectItem(c, "signal_strength");
+        if (cJSON_IsNumber(dbm_c))
+            ESP_LOGI(TAG, "%*s  - %s %s, %s GHz %d dBm", depth * 4, "", named(c, "name", "nickname", client, sizeof(client)),
+                     str(c, "ip"), str(c, "band"), dbm_c->valueint);
+        else
+            ESP_LOGI(TAG, "%*s  - %s %s, wired %d Mbps", depth * 4, "", named(c, "name", "nickname", client, sizeof(client)),
+                     str(c, "ip"), cJSON_GetObjectItem(c, "link_speed_mbps") ? cJSON_GetObjectItem(c, "link_speed_mbps")->valueint : 0);
+    }
+    cJSON_ArrayForEach(ext, cJSON_GetObjectItem(node, "extenders")) print_node(ext, depth + 1);
+}
+
+static void show_mesh(void)
+{
+    router_resp_t r;
+    size_t heap_before = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+    int64_t t0 = esp_timer_get_time();
+    if (router_get("/api/v4/easymesh/meshdevices", &r) != ESP_OK || r.status != 200) {
+        ESP_LOGE(TAG, "meshdevices: HTTP %d", r.status);
+        router_free(&r);
+        status(STEP_MESH, FAILED);
+        return;
+    }
+    int64_t t1 = esp_timer_get_time();
+    cJSON *reply = cJSON_Parse(r.body);
+    cJSON *extenders = mesh_extenders(reply), *devices = mesh_devices(reply), *topology = mesh_topology(reply);
+    size_t heap_min = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+    if (!extenders || !devices || !topology) {
+        ESP_LOGE(TAG, "meshdevices: no mesh in reply (%u bytes)", (unsigned)r.len);
+        status(STEP_MESH, FAILED);
+    } else {
+        mesh_add_nicknames(extenders, NICKNAMES, NICKNAME_COUNT);
+        mesh_add_nicknames(devices, NICKNAMES, NICKNAME_COUNT);
+        mesh_add_nicknames(topology, NICKNAMES, NICKNAME_COUNT);
+        ESP_LOGI(TAG, "meshdevices: %u bytes, fetched in %d ms, views built in %d ms, %u KB heap in use",
+                 (unsigned)r.len, (int)((t1 - t0) / 1000), (int)((esp_timer_get_time() - t1) / 1000),
+                 (unsigned)((heap_before - heap_min) / 1024));
+        ESP_LOGI(TAG, "%d extenders, %d devices; topology:", cJSON_GetArraySize(extenders), cJSON_GetArraySize(devices));
+        print_node(topology, 0);
+        status(STEP_MESH, OK);
+    }
+    cJSON_Delete(topology);
+    cJSON_Delete(devices);
+    cJSON_Delete(extenders);
+    cJSON_Delete(reply);
+    router_free(&r);
+}
+
 void app_main(void)
 {
     uint32_t flash_size = 0;
@@ -100,6 +174,8 @@ void app_main(void)
 
     status(STEP_WAN, BUSY);
     show_wan_ipv4();
+    status(STEP_MESH, BUSY);
+    show_mesh();
     router_logout();
     ESP_LOGI(TAG, "logged out; done");
 }

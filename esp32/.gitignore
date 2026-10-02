@@ -4,3 +4,4 @@ sdkconfig.*
 managed_components/
 dependencies.lock
 src/secrets.h
+src/nicknames.h

@@ -1,0 +1,6 @@
+# test nicknames (fake names)
+GW            Gateway Nick
+02:00:00:00:00:02   Ext A   # deviceId used as hostname
+ext-b Ext B
+02:00:00:00:02:01 nas-nick
+phone Telefoon
