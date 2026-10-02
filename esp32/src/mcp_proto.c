@@ -10,8 +10,9 @@ static const char *const PROTOCOL_VERSIONS[] = {"2025-11-25", "2025-06-18", "202
 
 static const char INSTRUCTIONS[] =
     "Tools for a Sagemcom F@st 5598 home gateway (Delta Fiber, NL) and its FAST381 mesh extenders,\n"
-    "served from an ESP32-S3 on the LAN. Available so far: `network_topology`, `list_devices`,\n"
-    "`list_extenders`.\n"
+    "served from an ESP32-S3 on the LAN. For setup questions use `router_overview`, `network_topology`,\n"
+    "`list_devices`, `list_extenders`, `wifi_details`, `wan_details`, `ethernet_ports`,\n"
+    "`firewall_details`, `dhcp_details`. (The event log, history and `diagnose` are not on the ESP32 yet.)\n"
     "\n"
     "Notes: the router allows one admin session at a time, so each tool call logs in and out (a user\n"
     "logged into the web GUI at the same time may be logged out). Signal strengths are in dBm: better\n"

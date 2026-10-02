@@ -1,0 +1,12 @@
+[
+ {
+  "dhcp": {
+   "enable": true,
+   "minaddress": "10.0.0.100",
+   "maxaddress": "10.0.0.200",
+   "leasetime": 86400,
+   "iprouter": "10.0.0.1",
+   "subnetmask": "255.255.255.0"
+  }
+ }
+]

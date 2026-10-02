@@ -1,0 +1,9 @@
+[
+ {
+  "uptime": 3600,
+  "serial_number": "SN-TEST",
+  "firmware": "FW-1",
+  "wan_status": "up",
+  "wan_ipv4": "100.70.1.2"
+ }
+]

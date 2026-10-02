@@ -1,0 +1,14 @@
+[
+ {
+  "lan": {
+   "interfaces": [
+    {
+     "name": "eth0",
+     "rx": {
+      "bytes": null
+     }
+    }
+   ]
+  }
+ }
+]

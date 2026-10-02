@@ -1,0 +1,17 @@
+[
+ {
+  "ssids": [
+   {
+    "ssidName": "net",
+    "type": "Primary",
+    "radio": "2_4GHZ",
+    "ssidStatus": "UP",
+    "protocol": "WPA2",
+    "maxbitrate": "344Mbps"
+   },
+   {
+    "ssidName": "guest"
+   }
+  ]
+ }
+]

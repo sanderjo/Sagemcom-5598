@@ -1,0 +1,9 @@
+[
+ {
+  "uptime": "1.5",
+  "serial_number": "x",
+  "firmware": "y",
+  "wan_status": "z",
+  "wan_ipv4": "w"
+ }
+]

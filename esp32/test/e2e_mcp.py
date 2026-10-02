@@ -27,7 +27,9 @@ from mcp.shared.exceptions import MCPError  # noqa: E402
 
 import sagemcom5598_mcp  # noqa: E402
 
-CALLS = [("network_topology", {}), ("list_extenders", {}), ("list_devices", {}), ("list_devices", {"include_inactive": True})]
+CALLS = [("router_overview", {}), ("network_topology", {}), ("list_extenders", {}), ("list_devices", {}),
+         ("list_devices", {"include_inactive": True}), ("wan_details", {}), ("ethernet_ports", {}),
+         ("wifi_details", {}), ("firewall_details", {}), ("dhcp_details", {})]
 
 
 def token() -> str:

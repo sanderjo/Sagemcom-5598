@@ -26,7 +26,7 @@ def build() -> None:
     subprocess.run(
         ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", "-g", "-fsanitize=address,undefined",
          f"-I{HERE.parent / 'src'}", f"-I{CJSON}",
-         str(HERE / "host_mesh.c"), str(HERE.parent / "src" / "mesh.c"), str(CJSON / "cJSON.c"),
+         str(HERE / "host_mesh.c"), str(HERE.parent / "src" / "mesh.c"), str(HERE.parent / "src" / "pyjson.c"), str(CJSON / "cJSON.c"), "-lm",
          "-o", str(BINARY)],
         check=True,
     )
