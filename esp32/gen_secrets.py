@@ -1,4 +1,4 @@
-"""PlatformIO pre-build script: turn ../credentials.ini into src/secrets.h,
+"""PlatformIO pre-build script: turn ../credentials.ini ([router], [wifi], [mcp]) into src/secrets.h,
 and ../nicknames.txt into src/nicknames.h.
 
 The router admin password stays in one place (the repo's gitignored
@@ -20,7 +20,7 @@ out_path = project / "src" / "secrets.h"
 
 ini = configparser.ConfigParser()
 ini.read(ini_path)
-missing = [f"[{s}] {k}" for s, keys in {"router": ["password"], "wifi": ["ssid", "password"]}.items()
+missing = [f"[{s}] {k}" for s, keys in {"router": ["password"], "wifi": ["ssid", "password"], "mcp": ["token"]}.items()
            for k in keys if not ini.get(s, k, fallback="")]
 if missing:
     raise SystemExit(f"{ini_path}: missing {', '.join(missing)}")
@@ -44,6 +44,7 @@ values = {
     "ROUTER_IP": ini.get("router", "ip", fallback="192.168.1.254"),
     "ROUTER_LOGIN": ini.get("router", "login", fallback="beheer"),
     "ROUTER_PASSWORD": ini.get("router", "password"),
+    "MCP_TOKEN": ini.get("mcp", "token"),
     "CRYPT_TEST_PASSWORD": TEST_PASSWORD,
     "CRYPT_TEST_SALT": TEST_SALT,
     "CRYPT_TEST_EXPECTED": expected,

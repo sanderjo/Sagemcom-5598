@@ -188,6 +188,30 @@ cJSON *mesh_topology(const cJSON *reply)
     return tree;
 }
 
+cJSON *mesh_hosts(const cJSON *reply)
+{
+    const cJSON *list = get(get(cJSON_GetArrayItem(reply, 0), "hosts"), "list"), *host;
+    if (!cJSON_IsArray(list)) return NULL;
+    cJSON *out = cJSON_CreateArray();
+    cJSON_ArrayForEach(host, list) {
+        cJSON *h = cJSON_CreateObject();
+        cJSON_AddItemToObject(h, "name", dup(py_or(py_or(get(host, "friendlyHostname"), get(host, "hostname")), get(host, "macaddress"))));
+        cJSON_AddItemToObject(h, "mac", dup(get(host, "macaddress")));
+        cJSON_AddItemToObject(h, "ip", dup(get(host, "ipaddress")));
+        cJSON *ipv6 = cJSON_AddArrayToObject(h, "ipv6");
+        const cJSON *addr;
+        cJSON_ArrayForEach(addr, get(host, "ip6address")) cJSON_AddItemToArray(ipv6, dup(get(addr, "ipaddress")));
+        cJSON_AddItemToObject(h, "active", dup(get(host, "active")));
+        cJSON_AddItemToObject(h, "link", dup(get(host, "link")));
+        cJSON_AddItemToObject(h, "address_type", dup(get(host, "type")));
+        cJSON_AddItemToObject(h, "lease_remaining", dup(get(host, "lease")));
+        cJSON_AddItemToObject(h, "last_seen", dup(get(host, "lastseen")));
+        cJSON_AddItemToObject(h, "device_type", dup(get(host, "devicetype")));
+        cJSON_AddItemToArray(out, h);
+    }
+    return out;
+}
+
 // Fields naming a mesh node or client, and the field their nickname goes in
 static const char *const NAME_FIELDS[][2] = {
     {"hostname", "nickname"}, {"name", "nickname"}, {"mac", "nickname"}, {"device_id", "nickname"},
