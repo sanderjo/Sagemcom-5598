@@ -11,5 +11,12 @@ Screenshot*.png
 
 .DS_Store
 
+history.db
+.venv/
+
 # copy of the ESP32 board filesystem (contains wifi passwords)
 esp32-backup/
+
+# personal: real MACs/serials, and raw router session captures
+nicknames.txt
+*.har

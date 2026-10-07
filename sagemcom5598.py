@@ -5,11 +5,13 @@ import argparse
 import configparser
 import hashlib
 import random
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
 
 _CREDENTIALS_INI = Path(__file__).with_name("credentials.ini")
+NICKNAMES_FILE = Path(__file__).with_name("nicknames.txt")
 
 _B64_ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -139,7 +141,7 @@ class Sagemcom5598:
     def connected_extenders(self) -> list[dict]:
         mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
         devices = mesh.get("meshDevices", [])
-        hostname_by_device_id = {dev.get("deviceId"): dev.get("hostname") for dev in devices}
+        hostname_by_device_id = {dev.get("deviceId"): dev.get("hostname") or dev.get("deviceId") for dev in devices}
 
         extenders = []
         for dev in devices:
@@ -148,7 +150,8 @@ class Sagemcom5598:
             backhaul = dev.get("backhaul") or {}
             extenders.append(
                 {
-                    "hostname": dev.get("hostname"),
+                    "hostname": dev.get("hostname") or dev.get("deviceId"),
+                    "device_id": dev.get("deviceId"),
                     "model": dev.get("model"),
                     "serial_number": dev.get("serialNumber"),
                     "firmware": dev.get("softwareVersion"),
@@ -157,12 +160,26 @@ class Sagemcom5598:
                     "parent": hostname_by_device_id.get(backhaul.get("rootDeviceId")),
                     "backhaul": backhaul,
                     "signal_strength_dbm": {
-                        link["band"]: link.get("signalStrength")
+                        link["band"]: link.get("signalStrength", link.get("rssi0"))
                         for link in backhaul.get("wifiLinks", [])
                     },
                 }
             )
         return extenders
+
+    def gateway_node(self) -> dict:
+        """The gateway's own entry in the mesh: its `device_id` is the MAC
+        extenders refer to as their backhaul `rootDeviceId`."""
+        mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
+        gateway = next(dev for dev in mesh.get("meshDevices", []) if dev.get("type") == "gateway")
+        return {
+            "hostname": gateway.get("hostname"),
+            "device_id": gateway.get("deviceId"),
+            "model": gateway.get("model"),
+            "serial_number": gateway.get("serialNumber"),
+            "firmware": gateway.get("softwareVersion"),
+            "ipv4": gateway.get("ipv4"),
+        }
 
     def connected_devices(self) -> list[dict]:
         mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
@@ -227,19 +244,20 @@ class Sagemcom5598:
         for clients in clients_by_via.values():
             clients.sort(key=lambda c: c["connection"] != "wired")
 
-        def build(hostname: str, ipv4: str, signal_strength_dbm: dict | None) -> dict:
+        def build(hostname: str, ipv4: str, signal_strength_dbm: dict | None, backhaul_type: str | None) -> dict:
             return {
                 "hostname": hostname,
                 "ipv4": ipv4,
+                "backhaul_type": backhaul_type,
                 "signal_strength_dbm": signal_strength_dbm,
                 "clients": clients_by_via.get(hostname, []),
                 "extenders": [
-                    build(ext["hostname"], ext["ipv4"], ext["signal_strength_dbm"])
+                    build(ext["hostname"], ext["ipv4"], ext["signal_strength_dbm"], ext["backhaul"].get("linkType"))
                     for ext in extenders_by_parent.get(hostname, [])
                 ],
             }
 
-        return build(gateway.get("hostname"), gateway.get("ipv4"), None)
+        return build(gateway.get("hostname"), gateway.get("ipv4"), None, None)
 
     def firewall_settings(self) -> dict:
         firewall = self._get_json("/api/v2/firewall")[0]["firewall"]
@@ -376,6 +394,147 @@ class Sagemcom5598:
             "mac_address": ipv4["mac_address"],
         }
 
+    def wan_status(self) -> dict:
+        """WAN link state plus `last_change`: seconds since it last went
+        up or down."""
+        status = self._get_json("/api/v1/wan/status")[0]
+        return {"status": status["status"], "last_change": int(status["lastchange"])}
+
+    def lan_ports(self) -> list[dict]:
+        """Physical Ethernet ports of the gateway (the WAN port included,
+        `role` tells them apart) with negotiated speed/duplex and counters.
+        A port that negotiated 100 Mbps instead of 1000+ usually means a
+        bad cable or a 100 Mbps device on the other end."""
+        interfaces = self._get_json("/api/v1/lan/stats")[0]["lan"]["interfaces"]
+        return [
+            {
+                "name": intf.get("name"),
+                "alias": intf.get("alias"),
+                "role": intf.get("role"),
+                "enabled": intf.get("enable"),
+                "status": intf.get("status"),
+                "speed_mbps": int(intf["curbitrate"]) if str(intf.get("curbitrate", "")).isdigit() else None,
+                "duplex": intf.get("currentduplex"),
+                "rx": {k: int(v) for k, v in intf.get("rx", {}).items()},
+                "tx": {k: int(v) for k, v in intf.get("tx", {}).items()},
+            }
+            for intf in interfaces
+        ]
+
+    def hosts(self) -> list[dict]:
+        """Every host the router knows about, including ones no longer
+        connected (`active` false) - broader than connected_devices()."""
+        hosts = self._get_json("/api/v1/hosts")[0]["hosts"]["list"]
+        return [
+            {
+                "name": host.get("friendlyHostname") or host.get("hostname") or host.get("macaddress"),
+                "mac": host.get("macaddress"),
+                "ip": host.get("ipaddress"),
+                "ipv6": [addr["ipaddress"] for addr in host.get("ip6address", [])],
+                "active": host.get("active"),
+                "link": host.get("link"),
+                "address_type": host.get("type"),
+                "lease_remaining": host.get("lease"),
+                "last_seen": host.get("lastseen"),
+                "device_type": host.get("devicetype"),
+            }
+            for host in hosts
+        ]
+
+    def dhcp(self) -> dict:
+        """LAN DHCP server config: pool, lease time, router IP, subnet."""
+        info = self._get_json("/api/v1/dhcp")[0]
+        dhcp = info["dhcp"]
+        return {
+            "enabled": dhcp.get("enable"),
+            "pool_start": dhcp.get("minaddress"),
+            "pool_end": dhcp.get("maxaddress"),
+            "lease_time": dhcp.get("leasetime"),
+            "router_ip": dhcp.get("iprouter"),
+            "subnet_mask": dhcp.get("subnetmask"),
+            "reserved_pools": info.get("reservedpools", {}).get("list", []),
+        }
+
+    def ntp(self) -> dict:
+        """Time sync state. The event log's timestamps are only trustworthy
+        while `status` is SYNCHRONIZED."""
+        ntp = self._get_json("/api/v1/ntp")["ntp"]
+        return {
+            "enabled": ntp.get("enable"),
+            "status": ntp.get("status"),
+            "now": ntp.get("now"),
+            "time_zone": ntp.get("time_zone_name"),
+            "servers": [ntp[f"server{i}"] for i in range(1, 6) if ntp.get(f"server{i}")],
+        }
+
+    def wifi_config(self) -> dict:
+        """SSIDs per band (without their passwords), the channel each band
+        of each mesh node is on, and the band steering / MLO switches."""
+        home = self._get_json("/api/v2/home")[0]
+        mesh = self._get_json("/api/v4/easymesh/meshdevices")[0]
+        return {
+            "ssids": [
+                {
+                    "name": ssid.get("ssidName"),
+                    "type": ssid.get("type"),
+                    "radio": ssid.get("radio"),
+                    "status": ssid.get("ssidStatus"),
+                    "security": ssid.get("protocol"),
+                    "max_bitrate": ssid.get("maxbitrate"),
+                }
+                for ssid in home.get("ssids", [])
+            ],
+            "channels": {
+                dev.get("hostname"): {
+                    radio.get("band"): radio.get("channel") for radio in dev.get("wifiRadios", [])
+                }
+                for dev in mesh.get("meshDevices", [])
+            },
+            "band_steering": self._get_json("/api/v1/wireless/bandsteering")[0].get("BandSteeringEnable"),
+            "mlo_enabled": self._get_json("/api/v2/wireless/mlo/state")[0].get("mlo_state") == "1",
+        }
+
+    def device_log(self) -> list[dict]:
+        """`/api/v1/device/log` exactly as the router returns it: every
+        entry with all its fields (date, log, module, flags, param), in the
+        router's order and with timestamps uncorrected. See event_log()
+        for a cleaned-up version."""
+        return self._get_json("/api/v1/device/log")[0]["log"]
+
+    def event_log(self) -> list[dict]:
+        """The router's own event log (wifi (dis)connects, failed wifi
+        logins, WAN up/down, reboots, GUI logins, ...), oldest first.
+        It's a ring buffer of a few thousand entries - typically a week.
+
+        Entries logged right after boot, before NTP sync, carry a bogus
+        2013-01-01 timestamp counting up from boot; those are shifted to
+        the real boot time (now - device uptime) and marked
+        `clock_corrected`."""
+        entries = self.device_log()
+        boot_time = datetime.now(timezone.utc) - timedelta(seconds=self.device_info()["uptime"])
+        epoch = datetime(2013, 1, 1, tzinfo=timezone.utc)
+
+        events = []
+        for entry in entries:
+            when = datetime.strptime(entry["date"], "%Y-%m-%dT%H:%M:%S%z")
+            corrected = when.year < 2020
+            if corrected:
+                when = (boot_time + (when - epoch)).astimezone(when.tzinfo)
+            events.append(
+                (
+                    when,
+                    {
+                        "time": when.isoformat(),
+                        "level": entry.get("log"),
+                        "module": entry.get("module"),
+                        "message": entry.get("param"),
+                        "clock_corrected": corrected,
+                    },
+                )
+            )
+        events.sort(key=lambda pair: pair[0])
+        return [event for _, event in events]
+
 
 def _print_table(rows: list[dict], columns: list[str]) -> None:
     if not rows:
@@ -389,7 +548,7 @@ def _print_table(rows: list[dict], columns: list[str]) -> None:
 
 
 def _format_client_line(client: dict) -> str:
-    name = (client["name"] or "").ljust(26)
+    name = with_nickname(client["name"], load_nicknames()).ljust(26)
     ip = (client["ip"] or "").ljust(15)
     if client["connection"] == "wired":
         return f"{name} {ip} wired"
@@ -397,10 +556,13 @@ def _format_client_line(client: dict) -> str:
 
 
 def _format_extender_line(node: dict) -> str:
-    name = node["hostname"].ljust(26)
+    name = with_nickname(node["hostname"], load_nicknames()).ljust(40)
     ip = (node["ipv4"] or "").ljust(15)
+    if node.get("backhaul_type") == "Ethernet":
+        return f"{name} {ip} extender  backhaul wired ethernet"
+    # 0 (or missing) means the band isn't used for the backhaul, not a 0 dBm signal
     backhaul = "  ".join(
-        f"{band}={node['signal_strength_dbm'].get(band)}" for band in ("2.4", "5", "6")
+        f"{band}={node['signal_strength_dbm'].get(band) or '-'}" for band in ("2.4", "5", "6")
     )
     return f"{name} {ip} extender  backhaul {backhaul} dBm"
 
@@ -424,7 +586,7 @@ def _topology_lines(node: dict, indent: str) -> list[str]:
 
 
 def _print_topology(tree: dict) -> None:
-    print(f"{tree['hostname']} ({tree['ipv4']})")
+    print(f"{with_nickname(tree['hostname'], load_nicknames())} ({tree['ipv4']})")
     for line in _topology_lines(tree, ""):
         print(line)
 
@@ -510,6 +672,48 @@ def _print_wan_ipv4(ipv4: dict) -> None:
     print(f"mac_address: {ipv4['mac_address']}")
 
 
+def load_nicknames(path: Path = NICKNAMES_FILE) -> dict[str, str]:
+    """Friendly names from nicknames.txt: one `<hostname or MAC> <nickname>`
+    per line (the nickname may contain spaces; `#` starts a comment).
+    Keys are lowercased. Missing file -> no nicknames."""
+    nicknames = {}
+    if not path.is_file():
+        return nicknames
+    for line in path.read_text().splitlines():
+        parts = line.split("#", 1)[0].split(None, 1)
+        if len(parts) == 2:
+            nicknames[parts[0].lower()] = parts[1].strip()
+    return nicknames
+
+
+def with_nickname(name: str | None, nicknames: dict[str, str]) -> str:
+    """`name (nickname)`, or just `name` when it has no nickname."""
+    nickname = nicknames.get((name or "").lower())
+    return f"{name} ({nickname})" if nickname else (name or "")
+
+
+# Fields naming a mesh node or client; a nickname for the value is added
+# next to it as "<field>_nickname" ("nickname" for the node's own name).
+_NAME_FIELDS = {"hostname": "nickname", "name": "nickname", "mac": "nickname", "device_id": "nickname",
+                "parent": "parent_nickname", "connected_via": "connected_via_nickname", "via": "via_nickname"}
+
+
+def add_nicknames(data, nicknames: dict[str, str]):
+    """Walk dicts/lists and add nickname fields next to every known
+    hostname/MAC (in place; returns `data`). Technical names stay as is."""
+    if isinstance(data, list):
+        for item in data:
+            add_nicknames(item, nicknames)
+    elif isinstance(data, dict):
+        for field, target in _NAME_FIELDS.items():
+            value = data.get(field)
+            if isinstance(value, str) and value.lower() in nicknames and target not in data:
+                data[target] = nicknames[value.lower()]
+        for value in list(data.values()):
+            add_nicknames(value, nicknames)
+    return data
+
+
 def _load_credentials_ini() -> dict:
     if not _CREDENTIALS_INI.is_file():
         return {}
@@ -543,6 +747,10 @@ def _cli() -> None:
     parser.add_argument("--wifi_stats", action="store_true", help="show wifi stats for 2.4/5/6 GHz bands")
     parser.add_argument("--wan_stats", action="store_true", help="show total WAN rx/tx bytes")
     parser.add_argument("--wan_ipv4", action="store_true", help="show WAN link status, public IP, gateway, uptime")
+    parser.add_argument(
+        "--device-log", "--device_log", dest="device_log", action="store_true",
+        help="show the router's full event log (/api/v1/device/log), all entries and fields, as-is",
+    )
     args = parser.parse_args()
 
     ini = _load_credentials_ini()
@@ -576,24 +784,33 @@ def _cli() -> None:
         if args.connected_extenders:
             print("Connected extenders:")
             extenders = client.connected_extenders()
+            nicknames = load_nicknames()
             for extender in extenders:
+                extender["nickname"] = nicknames.get(extender["hostname"].lower(), "")
+                extender["parent"] = with_nickname(extender["parent"], nicknames)
+                # 0 (or missing) means the band isn't used for the backhaul, not a 0 dBm signal
                 signal = extender["signal_strength_dbm"]
-                extender["signal_2.4ghz_dbm"] = signal.get("2.4")
-                extender["signal_5ghz_dbm"] = signal.get("5")
-                extender["signal_6ghz_dbm"] = signal.get("6")
+                extender["signal_2.4ghz_dbm"] = signal.get("2.4") or "-"
+                extender["signal_5ghz_dbm"] = signal.get("5") or "-"
+                extender["signal_6ghz_dbm"] = signal.get("6") or "-"
+                extender["backhaul_type"] = "ethernet" if extender["backhaul"].get("linkType") == "Ethernet" else "wifi"
                 extender["uptime"] = _format_uptime(extender["uptime"])
             _print_table(
                 extenders,
                 columns=[
-                    "hostname", "model", "serial_number", "firmware", "ipv4", "uptime", "parent",
-                    "signal_2.4ghz_dbm", "signal_5ghz_dbm", "signal_6ghz_dbm",
+                    "hostname", "nickname", "model", "serial_number", "firmware", "ipv4", "uptime", "parent",
+                    "backhaul_type", "signal_2.4ghz_dbm", "signal_5ghz_dbm", "signal_6ghz_dbm",
                 ],
             )
             print()
         if args.connected_devices:
             print("Connected devices:")
+            devices = client.connected_devices()
+            nicknames = load_nicknames()
+            for device in devices:
+                device["connected_via"] = with_nickname(device["connected_via"], nicknames)
             _print_table(
-                client.connected_devices(),
+                devices,
                 columns=["name", "ip", "mac", "connection", "band", "signal_strength", "connected_via"],
             )
             print()
@@ -619,6 +836,12 @@ def _cli() -> None:
         if args.wan_ipv4:
             print("Wan ipv4:")
             _print_wan_ipv4(client.wan_ipv4())
+        if args.device_log:
+            print("Device log:")
+            entries = client.device_log()
+            columns = list(dict.fromkeys(key for entry in entries for key in entry))
+            _print_table(entries, columns=columns)
+            print()
     finally:
         client.logout()
 

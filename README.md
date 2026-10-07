@@ -9,8 +9,9 @@ from HAR captures of the router's own web UI and its Angular JS bundle.
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - [`requests`](https://pypi.org/project/requests/)
+- [`mcp`](https://pypi.org/project/mcp/) 2.x (only for the MCP server)
 
 ```bash
 pip install -r requirements.txt
@@ -22,11 +23,16 @@ pip install -r requirements.txt
 |----------------------------|------------------------------------------------------------|
 | `sagemcom5598.py`          | The module and CLI                                          |
 | `wifi_stats_diff.py`       | Diffs two `wifi_stats`/`wan_stats` snapshots into MB sent/received |
+| `sagemcom5598_mcp.py`      | MCP server: lets an AI assistant inspect and troubleshoot the router |
+| `sagemcom5598_diagnose.py` | The checks behind the MCP server's `diagnose` tool              |
+| `sagemcom5598_history.py`  | Collects periodic snapshots into SQLite (`history.db`)          |
 | `requirements.txt`         | Python dependencies                                          |
 | `credentials.ini.example`  | Template for `credentials.ini` (copy it, fill in your password) |
+| `nicknames.txt`            | Optional friendly names for extenders/clients (see below)    |
 | `README.md`                | This file                                                   |
 | `LICENSE`                  | GPL-3.0 license text                                        |
 | `tests/test_sagemcom5598.py` | Live integration tests against a real router               |
+| `tests/test_diagnose.py`   | Offline tests for the diagnosis logic                        |
 | `tests/requirements.txt`   | Dependencies for running the tests                           |
 
 ## Usage as a module
@@ -332,6 +338,36 @@ addresses across subscribers. `--firewall_allow_ipv6_port` won't help make a
 service reachable from outside in that case, since there's no public IPv4 to
 forward to.
 
+### More getters
+
+| Method            | Returns |
+|-------------------|---------|
+| `gateway_node()`  | The gateway's mesh entry: hostname, `device_id` (the MAC extenders use as `rootDeviceId`), model, serial, firmware |
+| `wan_status()`    | WAN link state and `last_change` (seconds since it last went up/down) |
+| `lan_ports()`     | Physical Ethernet ports (WAN port included, see `role`): status, negotiated `speed_mbps`, duplex, rx/tx counters |
+| `hosts()`         | Every host the router knows, including offline ones (`active`), with IPv4/IPv6, lease, last seen |
+| `dhcp()`          | LAN DHCP server config: pool, lease time, router IP, reserved pools |
+| `ntp()`           | Clock sync status, time zone, NTP servers |
+| `wifi_config()`   | SSIDs per band (status, security - **not** their passwords), channel per band per mesh node, band steering, MLO |
+| `event_log()`     | The router's event log, oldest first (see below) |
+| `device_log()`    | The same log raw, exactly as `/api/v1/device/log` returns it (all fields, no timestamp correction) |
+
+`event_log()` returns the router's own log (`/api/v1/device/log`) - a ring
+buffer of a few thousand entries, about a week on a typical home network:
+
+```json
+{"time": "2026-09-24T21:27:48+02:00", "level": "info", "module": "WETH",
+ "message": "Wan Ethernet connectivity has been disconnected", "clock_corrected": false}
+```
+
+Modules seen: `WIFI` (connects, disconnects, failed wifi logins - including
+the hidden mesh backhaul SSIDs `WL_BACKHAUL_*`), `SYS` (boot + boot reason,
+TR-069 sessions with the ISP), `GUI` (admin logins/logouts with source IP),
+`WETH`/`LETH` (WAN/LAN Ethernet link up/down), `DHCPC` (WAN DHCP client),
+`DHCPS`, `DNS`. Entries logged right after boot, before NTP sync, carry a
+bogus `2013-01-01` timestamp; `event_log()` shifts those to the real boot
+time and sets `clock_corrected`.
+
 ### `logout()`
 
 Ends the router session. The router only allows one authenticated LAN admin
@@ -361,13 +397,14 @@ Optional flags, each printed in a human-readable table:
 
 | Flag                    | Shows                          |
 |-------------------------|---------------------------------|
-| `--connected_extenders` | Mesh extenders, firmware, uptime, mesh parent, and backhaul signal strength per band |
+| `--connected_extenders` | Mesh extenders, firmware, uptime, mesh parent, backhaul type (`ethernet`/`wifi`) and backhaul signal strength per band (`-` = band not used) |
 | `--connected_devices`   | Wired and wireless clients      |
 | `--topology`            | Mesh + clients as ASCII art (not a table — see `topology()` above) |
 | `--firewall_settings`   | Firewall config and custom rules|
 | `--wifi_stats`          | Traffic stats per wifi band (rx/tx in MB, 1 MB = 1024*1024 bytes) |
 | `--wan_stats`           | Total WAN rx/tx (MB, 1 MB = 1024*1024 bytes) |
 | `--wan_ipv4`            | WAN link status, public IP, gateway, uptime |
+| `--device-log`          | The router's full event log (`/api/v1/device/log`) as-is: every entry with all its fields (`date`, `log`, `module`, `flags`, `param`), oldest first, timestamps uncorrected |
 
 `--firewall_allow_ipv6_port PORT` is a write action, not a table: it adds two
 Custom-chain firewall rules (one per direction) that Accept ipv6 tcp/udp
@@ -402,6 +439,27 @@ python3 sagemcom5598.py --connected_devices
 Any of `--login`, `--ip`, or `--username` passed on the command line takes
 precedence over the values in `credentials.ini`. This file is gitignored —
 never commit it.
+
+### Friendly names in `nicknames.txt`
+
+Extender hostnames like `F381D-N725150C5021992` are hard to recognise. Put a
+`nicknames.txt` next to `sagemcom5598.py` with one `<hostname or MAC> <nickname>`
+per line (the nickname may contain spaces, `#` starts a comment):
+
+```
+F381D-N725150C5019024 BOL.com
+F381D-N725150C5021992 schuur
+```
+
+The CLI then shows the nickname next to the technical name: `--topology`
+(`F381D-N725150C5021992 (schuur)`), a `nickname` column and the parent in
+`--connected_extenders`, and `connected_via` in `--connected_devices`. The MCP
+server adds `nickname` (or `parent_nickname`, `connected_via_nickname`,
+`via_nickname`) fields next to every matching name in its results, and its
+`device` arguments accept a nickname. The file is re-read on every use, so
+edits apply without restarting anything. `topology()`/`connected_extenders()`
+themselves stay unchanged; use `load_nicknames()` and `add_nicknames()` to get
+the same in your own code.
 
 ## Measuring traffic with `wifi_stats_diff.py`
 
@@ -445,11 +503,119 @@ as a counter reset rather than silently shown as negative MB.
 endpoint only covers the gateway's own radios, so extender and backhaul
 traffic never shows up there, no matter how large the transfer.
 
+## MCP server for AI assistants
+
+`sagemcom5598_mcp.py` is an [MCP](https://modelcontextprotocol.io) server, so an
+AI assistant (Claude Code, Claude Desktop, ...) can answer questions like
+*"why is the wifi upstairs slow?"* or *"did the internet drop last night?"* by
+looking at the router itself. Aimed at the owner of the router as well as an
+ISP helpdesk employee going through a customer's setup.
+
+It is **read-only**: no tool changes settings (the firewall write actions are
+deliberately not exposed), and secrets the router hands out (wifi passwords,
+PPP/PLOAM credentials) are never returned.
+
+### Tools
+
+| Tool               | What it answers |
+|--------------------|-----------------|
+| `diagnose(hours=25)` | Runs all checks and returns findings sorted by severity, each with evidence, likely root cause and suggested fix. Start here. |
+| `router_overview`  | Model, serial, firmware, uptime, WAN, clock sync, extenders, client counts |
+| `network_topology` | Gateway → extenders → clients tree |
+| `list_devices(include_inactive)` | Clients with IP/MAC/band/signal/node; optionally also offline known hosts |
+| `list_extenders`   | Extenders with firmware, uptime, parent, backhaul detail |
+| `wan_details`      | WAN status, IP (CGNAT flag), time since last change, WAN port speed, counters |
+| `ethernet_ports`   | Gateway Ethernet ports: speed, duplex, errors |
+| `wifi_details`     | SSIDs (no passwords), channels per node, band steering, MLO, radio stats |
+| `firewall_details` | Firewall level and custom rules |
+| `dhcp_details`     | DHCP server config and all known hosts |
+| `event_log(hours, module, level, device, contains, limit)` | Router log, filtered, MACs annotated with device names |
+| `event_summary(hours)` | Log condensed: counts per event kind and per wifi device, GUI logins by source |
+| `history_summary(hours)` | From collected snapshots: reboots, firmware/WAN IP/mesh/port changes, hourly throughput and client counts, backhaul signal ranges, per-client presence/signal/roaming |
+| `device_history(device, hours)` | Snapshot timeline for one client or extender |
+
+`diagnose` currently checks for: WAN down / WAN drops (with duration) / DHCP
+lease trouble / CGNAT; gateway reboots with the logged boot reason (power,
+watchdog, software); extender reboots, and whether they happened together
+(firmware push, shared power outage) or alone; mesh nodes and clients failing
+wifi authentication; clients and mesh backhaul links that keep reconnecting;
+weak client signal; weak or 2.4 GHz-only extender backhaul and multi-hop
+wireless chains; mixed extender firmware; Ethernet links below 1 Gbps, half
+duplex, port errors; high wifi transmit error ratios; clock not synced;
+plus reboots/changes and collection gaps found in history.
+
+### History: the last 25 hours
+
+The router's event log already goes back about a week, but the router keeps
+no *measurements*: signal strengths, throughput and uptimes only exist as
+"right now". So the MCP server takes a snapshot every 5 minutes while it runs
+(`--collect-interval`, `0` disables) into `history.db` (SQLite, pruned to
+`--retention` hours, default 25).
+
+An MCP server only runs while the assistant is open. For history around the
+clock, run the collector separately as well (cron, systemd, a Raspberry Pi):
+
+```bash
+python3 sagemcom5598_history.py --interval 300          # loop forever
+python3 sagemcom5598_history.py                          # one snapshot (for cron)
+```
+
+Both write to the same `history.db`; the MCP server then reads what the
+collector gathered.
+
+### Setup
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp credentials.ini.example credentials.ini   # fill in the router password
+```
+
+Credentials come from `credentials.ini`, or from the environment variables
+`SAGEMCOM_IP`, `SAGEMCOM_LOGIN`, `SAGEMCOM_PASSWORD` (which win). The history
+file can be moved with `SAGEMCOM_HISTORY_DB` or `--db`.
+
+Register with Claude Code:
+
+```bash
+claude mcp add sagemcom5598 -- /path/to/.venv/bin/python /path/to/sagemcom5598_mcp.py
+# or with the password in the environment instead of credentials.ini:
+claude mcp add sagemcom5598 -e SAGEMCOM_PASSWORD=... -- /path/to/.venv/bin/python /path/to/sagemcom5598_mcp.py
+```
+
+Use the venv's Python, not plain `python3`: a Python without the `mcp`
+package makes the server exit at once (`claude mcp list` then shows
+"Failed to connect"). Without `-s user` the server is only available when
+Claude Code is started in this directory.
+
+For Claude Desktop, add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "sagemcom5598": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["/path/to/sagemcom5598_mcp.py"]
+    }
+  }
+}
+```
+
+Then just ask, e.g. *"Diagnose my Sagemcom router"*, *"Which devices
+dropped off wifi most today?"*, *"Was there an internet outage last night?"*.
+
+Keep in mind: the router allows one admin session at a time. Every tool call
+(and every history snapshot) logs in and out, so someone logged into the web
+GUI at the same moment may get logged out. These logins also show up in the
+router's own log as GUI logins from this machine's IP - `event_summary`
+marks them as `(this MCP server)`.
+
 ## Tests
 
 `tests/test_sagemcom5598.py` are live integration tests that run against a
 real router, using the credentials from `credentials.ini`. They're skipped
 automatically if `credentials.ini` is missing or the router can't be reached.
+`tests/test_diagnose.py` tests the diagnosis logic offline, with fixture data.
 
 ```bash
 python3 -m unittest discover -s tests -v

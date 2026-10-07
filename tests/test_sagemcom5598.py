@@ -107,6 +107,34 @@ class Sagemcom5598LiveTest(unittest.TestCase):
             self.assertIn(key, ipv4)
         self.assertIsInstance(ipv4["uptime"], int)
 
+    def test_event_log(self):
+        events = self.client.event_log()
+        self.assertGreater(len(events), 0)
+        for key in ("time", "level", "module", "message", "clock_corrected"):
+            self.assertIn(key, events[0])
+        self.assertFalse(any(e["time"].startswith("2013") for e in events))
+
+    def test_device_log(self):
+        entries = self.client.device_log()
+        self.assertGreater(len(entries), 0)
+        for key in ("date", "log", "module", "param"):
+            self.assertIn(key, entries[0])
+
+    def test_lan_ports(self):
+        ports = self.client.lan_ports()
+        self.assertIn("WAN", [p["role"] for p in ports])
+        for port in ports:
+            self.assertIsInstance(port["rx"]["bytes"], int)
+
+    def test_hosts_and_dhcp(self):
+        self.assertGreater(len(self.client.hosts()), 0)
+        self.assertIn("pool_start", self.client.dhcp())
+
+    def test_wifi_config_has_no_passwords(self):
+        config = self.client.wifi_config()
+        self.assertGreater(len(config["ssids"]), 0)
+        self.assertNotIn("password", str(config).lower())
+
 
 if __name__ == "__main__":
     unittest.main()
