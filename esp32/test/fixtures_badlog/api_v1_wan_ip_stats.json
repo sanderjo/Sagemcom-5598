@@ -1,0 +1,19 @@
+[
+ {
+  "wan": {
+   "ip": {
+    "stats": {
+     "rx": {
+      "bytes": "123456789012",
+      "packets": 5,
+      "errors": "+0"
+     },
+     "tx": {
+      "bytes": "-1",
+      "packets": true
+     }
+    }
+   }
+  }
+ }
+]

@@ -1,5 +1,6 @@
 // Activity lights on the LED matrix: left-middle blinks blue while an MCP
-// request is handled, right-middle flashes green once per router connection.
+// request is handled, right-middle flashes green once per router connection,
+// and the top-right LED flashes green every 2 s as a heartbeat.
 #pragma once
 
 void activity_start(void);

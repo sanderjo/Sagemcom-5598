@@ -1,0 +1,15 @@
+[
+ {
+  "wan": {
+   "ipv4": {
+    "status": "Up",
+    "addressing_type": "DHCP",
+    "address": "100.70.1.2",
+    "subnet": "255.255.192.0",
+    "gateway": "100.64.0.1",
+    "uptime": " 42 ",
+    "mac_address": "02:00:00:00:aa:01"
+   }
+  }
+ }
+]

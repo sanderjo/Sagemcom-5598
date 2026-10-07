@@ -12,6 +12,8 @@ typedef struct {
 // ESP_ERR_INVALID_RESPONSE: wrong password (HTTP 400), like the Python CLI reports it.
 esp_err_t router_login(const char *ip, const char *login, const char *password);
 esp_err_t router_get(const char *path, router_resp_t *resp);
+// router_get() for large replies (up to `max_body` bytes; the event log is ~800 KB)
+esp_err_t router_get_large(const char *path, router_resp_t *resp, size_t max_body);
 void router_logout(void);
 // called at the start of every HTTP request to the router (e.g. for an activity LED)
 void router_set_request_hook(void (*hook)(void));

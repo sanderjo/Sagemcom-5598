@@ -1,16 +1,19 @@
 #include "mcp_http.h"
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_timer.h"
 #include "mcp_proto.h"
 #include "router.h"
 
 #define MAX_BODY (64 * 1024)
+#define MAX_LOG (1536 * 1024)  // the router's event log is ~800 KB
 
 static const char *TAG = "mcp";
 
@@ -25,9 +28,8 @@ static mcp_server_t s_server;
 
 // --- router access for the tools: log in lazily, log out after each tool ---
 
-static cJSON *fetch(void *ctx, const char *path, char *err, size_t err_size)
+static int ensure_login(session_t *s, char *err, size_t err_size)
 {
-    session_t *s = ctx;
     if (!s->logged_in) {
         esp_err_t e = ESP_FAIL;
         for (int attempt = 0; attempt < 2; attempt++) {  // the router occasionally drops a connection
@@ -37,14 +39,21 @@ static cJSON *fetch(void *ctx, const char *path, char *err, size_t err_size)
         }
         if (e == ESP_ERR_INVALID_RESPONSE) {
             snprintf(err, err_size, "Router rejected the login (wrong password?)");
-            return NULL;
+            return 0;
         }
         if (e != ESP_OK) {
             snprintf(err, err_size, "No router reachable at %s", s->config->router_ip);
-            return NULL;
+            return 0;
         }
         s->logged_in = 1;
     }
+    return 1;
+}
+
+static cJSON *fetch(void *ctx, const char *path, char *err, size_t err_size)
+{
+    session_t *s = ctx;
+    if (!ensure_login(s, err, err_size)) return NULL;
     router_resp_t r;
     if (router_get(path, &r) != ESP_OK) {
         snprintf(err, err_size, "no answer from the router for %s", path);
@@ -55,6 +64,43 @@ static cJSON *fetch(void *ctx, const char *path, char *err, size_t err_size)
     else if (!(json = cJSON_Parse(r.body))) snprintf(err, err_size, "invalid JSON from %s", path);
     router_free(&r);
     return json;
+}
+
+static char *fetch_raw(void *ctx, const char *path, size_t *len, char *err, size_t err_size)
+{
+    session_t *s = ctx;
+    if (!ensure_login(s, err, err_size)) return NULL;
+    router_resp_t r;
+    if (router_get_large(path, &r, MAX_LOG) != ESP_OK) {
+        snprintf(err, err_size, "no (complete) answer from the router for %s", path);
+        return NULL;
+    }
+    if (r.status != 200 || !r.body) {
+        snprintf(err, err_size, "HTTP %d from %s", r.status, path);
+        router_free(&r);
+        return NULL;
+    }
+    *len = r.len;
+    return r.body;  // PSRAM; free() releases it
+}
+
+static int64_t now_us(void *ctx)
+{
+    (void)ctx;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec < 1704067200 ? -1 : (int64_t)tv.tv_sec * 1000000 + tv.tv_usec;  // before 2024: not synced
+}
+
+static const char *own_ip(void *ctx)
+{
+    (void)ctx;
+    static char buf[16];
+    esp_netif_ip_info_t info;
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!netif || esp_netif_get_ip_info(netif, &info) != ESP_OK) return NULL;
+    snprintf(buf, sizeof(buf), IPSTR, IP2STR(&info.ip));
+    return buf;
 }
 
 static void before_tool(void *ctx, const char *name)
@@ -197,8 +243,7 @@ esp_err_t mcp_http_start(const mcp_http_config_t *config)
     s_config = *config;
     s_session = (session_t){.config = &s_config};
     s_server = (mcp_server_t){
-        .fetch = fetch,
-        .fetch_ctx = &s_session,
+        .env = {.fetch = fetch, .fetch_raw = fetch_raw, .ctx = &s_session, .now_us = now_us, .own_ip = own_ip},
         .nicknames = config->nicknames,
         .nickname_count = config->nickname_count,
         .before_tool = before_tool,

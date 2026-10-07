@@ -12,7 +12,11 @@ static const char INSTRUCTIONS[] =
     "Tools for a Sagemcom F@st 5598 home gateway (Delta Fiber, NL) and its FAST381 mesh extenders,\n"
     "served from an ESP32-S3 on the LAN. For setup questions use `router_overview`, `network_topology`,\n"
     "`list_devices`, `list_extenders`, `wifi_details`, `wan_details`, `ethernet_ports`,\n"
-    "`firewall_details`, `dhcp_details`. (The event log, history and `diagnose` are not on the ESP32 yet.)\n"
+    "`firewall_details`, `dhcp_details`; for what happened, `event_log` (filter by device/module) and\n"
+    "`event_summary`. (History and `diagnose` are not on the ESP32 yet.)\n"
+    "The router's event log holds a few thousand events - a few days to a week. Times are in the router's\n"
+    "local time zone. On the ESP32 one `event_log` call returns at most ~800 events (memory): narrow it\n"
+    "down with `hours`, `module`, `device` or `contains` rather than raising `limit`.\n"
     "\n"
     "Notes: the router allows one admin session at a time, so each tool call logs in and out (a user\n"
     "logged into the web GUI at the same time may be logged out). Signal strengths are in dBm: better\n"
@@ -86,16 +90,15 @@ static cJSON *call_tool(const mcp_server_t *server, const cJSON *id, const cJSON
     if (args && !cJSON_IsObject(args)) return error_response(id, MCP_INVALID_PARAMS, "arguments must be an object");
 
     char err[160];
-    if (server->before_tool) server->before_tool(server->fetch_ctx, name);
-    cJSON *out = tools_run(name, args, server->fetch, server->fetch_ctx, server->nicknames, server->nickname_count,
-                           err, sizeof(err));
-    if (server->after_tool) server->after_tool(server->fetch_ctx, name, out != NULL);
+    if (server->before_tool) server->before_tool(server->env.ctx, name);
+    cJSON *out = tools_run(name, args, &server->env, server->nicknames, server->nickname_count, err, sizeof(err));
+    if (server->after_tool) server->after_tool(server->env.ctx, name, out != NULL);
     if (!out) {
         char msg[220];
         snprintf(msg, sizeof(msg), "Error executing tool %s: %s", name, err[0] ? err : "unknown error");
         return response(id, text_result(msg, 1));
     }
-    char *text = cJSON_Print(out);
+    char *text = cJSON_PrintUnformatted(out);  // Python indents; compact needs less memory (and fewer tokens)
     cJSON_Delete(out);
     if (!text) return error_response(id, -32603, "out of memory");
     cJSON *result = text_result(text, 0);

@@ -22,13 +22,42 @@ static char *slurp(const char *path)
 }
 
 // "/api/v2/firewall/chain?chain=Custom" -> "<dir>/api_v2_firewall_chain_chain-Custom.json"
+static void fixture_file(const char *dir, const char *path, char *file, size_t size)
+{
+    size_t o = snprintf(file, size, "%s/", dir);
+    for (const char *p = path + 1; *p && o + 6 < size; p++)
+        file[o++] = *p == '/' || *p == '?' ? '_' : *p == '=' ? '-' : *p;
+    snprintf(file + o, size - o, ".json");
+}
+
+static char *fetch_raw(void *ctx, const char *path, size_t *len, char *err, size_t err_size)
+{
+    char file[512];
+    fixture_file(ctx, path, file, sizeof(file));
+    char *text = slurp(file);
+    if (!text) snprintf(err, err_size, "no fixture for %s", path);
+    else *len = strlen(text);
+    return text;
+}
+
+// the time and our IP come from the test, so both sides see the same
+static int64_t now_us(void *ctx)
+{
+    (void)ctx;
+    const char *v = getenv("HOST_NOW_US");
+    return v ? strtoll(v, NULL, 10) : -1;
+}
+
+static const char *own_ip(void *ctx)
+{
+    (void)ctx;
+    return getenv("HOST_OWN_IP");
+}
+
 static cJSON *fetch(void *ctx, const char *path, char *err, size_t err_size)
 {
     char file[512];
-    size_t o = snprintf(file, sizeof(file), "%s/", (const char *)ctx);
-    for (const char *p = path + 1; *p && o + 6 < sizeof(file); p++)
-        file[o++] = *p == '/' || *p == '?' ? '_' : *p == '=' ? '-' : *p;
-    snprintf(file + o, sizeof(file) - o, ".json");
+    fixture_file(ctx, path, file, sizeof(file));
     char *text = slurp(file);
     if (!text) {
         snprintf(err, err_size, "no fixture for %s", path);
@@ -71,7 +100,8 @@ int main(int argc, char **argv)
     size_t count = load_nicknames(nick_text, nicknames, 256);
     cJSON *args = cJSON_Parse(argv[3]);
     char err[200];
-    cJSON *out = tools_run(argv[2], args, fetch, argv[1], nicknames, count, err, sizeof(err));
+    tools_env_t env = {.fetch = fetch, .fetch_raw = fetch_raw, .ctx = argv[1], .now_us = now_us, .own_ip = own_ip};
+    cJSON *out = tools_run(argv[2], args, &env, nicknames, count, err, sizeof(err));
     if (!out) {
         cJSON *e = cJSON_CreateObject();
         cJSON_AddStringToObject(e, "__error__", err);

@@ -1,0 +1,8 @@
+[
+ {
+  "firewall": {
+   "level": 2,
+   "port_scan_detection": true
+  }
+ }
+]

@@ -1,0 +1,16 @@
+[
+ {
+  "wireless": {
+   "ssid": {
+    "status": "Up",
+    "maxbitrate": 344,
+    "stats": {
+     "rx": {
+      "bytes": 1
+     },
+     "tx": null
+    }
+   }
+  }
+ }
+]

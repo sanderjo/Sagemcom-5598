@@ -1,5 +1,6 @@
 #include "router.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include "cJSON.h"
@@ -24,9 +25,22 @@ void router_set_request_hook(void (*hook)(void))
 
 typedef struct {
     router_resp_t *resp;
-    size_t cap;
+    size_t cap, max;
     bool overflow;
 } ctx_t;
+
+static bool reserve(ctx_t *ctx, size_t need)
+{
+    if (need <= ctx->cap) return true;
+    size_t cap = ctx->cap ? ctx->cap * 2 : 4096;
+    while (cap < need) cap *= 2;
+    if (cap > ctx->max) cap = need <= ctx->max ? ctx->max : 0;
+    char *grown = cap ? heap_caps_realloc(ctx->resp->body, cap, MALLOC_CAP_SPIRAM) : NULL;
+    if (!grown) return false;
+    ctx->resp->body = grown;
+    ctx->cap = cap;
+    return true;
+}
 
 static void store_cookie(const char *set_cookie)
 {
@@ -49,16 +63,13 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
     ctx_t *ctx = evt->user_data;
     if (evt->event_id == HTTP_EVENT_ON_HEADER && strcasecmp(evt->header_key, "Set-Cookie") == 0) {
         store_cookie(evt->header_value);
+    } else if (evt->event_id == HTTP_EVENT_ON_HEADER && strcasecmp(evt->header_key, "Content-Length") == 0) {
+        // one exact allocation instead of doubling (the log would briefly need 1.5x its size)
+        size_t n = strtoul(evt->header_value, NULL, 10);
+        if (n && n + 1 <= ctx->max) reserve(ctx, n + 1);
     } else if (evt->event_id == HTTP_EVENT_ON_DATA && !ctx->overflow) {
         router_resp_t *r = ctx->resp;
-        if (r->len + evt->data_len + 1 > ctx->cap) {
-            size_t cap = ctx->cap ? ctx->cap * 2 : 4096;
-            while (cap < r->len + evt->data_len + 1) cap *= 2;
-            char *grown = cap <= MAX_BODY ? heap_caps_realloc(r->body, cap, MALLOC_CAP_SPIRAM) : NULL;
-            if (!grown) { ctx->overflow = true; return ESP_OK; }
-            r->body = grown;
-            ctx->cap = cap;
-        }
+        if (!reserve(ctx, r->len + evt->data_len + 1)) { ctx->overflow = true; return ESP_OK; }
         memcpy(r->body + r->len, evt->data, evt->data_len);
         r->len += evt->data_len;
         r->body[r->len] = '\0';
@@ -66,7 +77,8 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-static esp_err_t request(esp_http_client_method_t method, const char *path, const char *form, router_resp_t *resp)
+static esp_err_t request(esp_http_client_method_t method, const char *path, const char *form, router_resp_t *resp,
+                         size_t max_body)
 {
     char url[128], cookie_header[MAX_COOKIES * 162] = "", referer[64];
     if (s_request_hook) s_request_hook();
@@ -79,7 +91,7 @@ static esp_err_t request(esp_http_client_method_t method, const char *path, cons
     }
 
     *resp = (router_resp_t){0};
-    ctx_t ctx = {.resp = resp};
+    ctx_t ctx = {.resp = resp, .max = max_body};
     esp_http_client_config_t cfg = {
         .url = url,
         .method = method,
@@ -114,7 +126,12 @@ static esp_err_t request(esp_http_client_method_t method, const char *path, cons
 
 esp_err_t router_get(const char *path, router_resp_t *resp)
 {
-    return request(HTTP_METHOD_GET, path, NULL, resp);
+    return request(HTTP_METHOD_GET, path, NULL, resp, MAX_BODY);
+}
+
+esp_err_t router_get_large(const char *path, router_resp_t *resp, size_t max_body)
+{
+    return request(HTTP_METHOD_GET, path, NULL, resp, max_body);
 }
 
 void router_free(router_resp_t *resp)
@@ -145,12 +162,12 @@ esp_err_t router_login(const char *ip, const char *login, const char *password)
     char form[512], login_esc[96];
     form_escape(login, login_esc, sizeof(login_esc));
 
-    esp_err_t err = request(HTTP_METHOD_GET, "/api/v1/open", NULL, &r);
+    esp_err_t err = request(HTTP_METHOD_GET, "/api/v1/open", NULL, &r, MAX_BODY);
     if (err != ESP_OK) return err;
     router_free(&r);
 
     snprintf(form, sizeof(form), "login=%s", login_esc);
-    if ((err = request(HTTP_METHOD_POST, "/api/v2/login-params", form, &r)) != ESP_OK) return err;
+    if ((err = request(HTTP_METHOD_POST, "/api/v2/login-params", form, &r, MAX_BODY)) != ESP_OK) return err;
     cJSON *json = r.status == 200 ? cJSON_Parse(r.body) : NULL;
     cJSON *params = cJSON_GetArrayItem(json, 0);
     const char *salt = cJSON_GetStringValue(cJSON_GetObjectItem(params, "salt"));
@@ -177,7 +194,7 @@ esp_err_t router_login(const char *ip, const char *login, const char *password)
     if (sha512_hex(text, auth_key) != ESP_OK) return ESP_FAIL;
 
     snprintf(form, sizeof(form), "login=%s&auth_key=%s&cnonce=%s", login_esc, auth_key, cnonce);
-    if ((err = request(HTTP_METHOD_POST, "/api/v1/login", form, &r)) != ESP_OK) return err;
+    if ((err = request(HTTP_METHOD_POST, "/api/v1/login", form, &r, MAX_BODY)) != ESP_OK) return err;
     int status = r.status;
     router_free(&r);
     if (status == 400) return ESP_ERR_INVALID_RESPONSE;
@@ -191,5 +208,5 @@ esp_err_t router_login(const char *ip, const char *login, const char *password)
 void router_logout(void)
 {
     router_resp_t r;
-    if (request(HTTP_METHOD_POST, "/api/v1/logout", "", &r) == ESP_OK) router_free(&r);
+    if (request(HTTP_METHOD_POST, "/api/v1/logout", "", &r, MAX_BODY) == ESP_OK) router_free(&r);
 }

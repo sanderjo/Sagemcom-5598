@@ -9,3 +9,4 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
 # MCP clients send a fair amount of headers (Authorization, MCP-Protocol-Version, ...)
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
+CONFIG_LWIP_SNTP_MAX_SERVERS=2

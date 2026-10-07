@@ -2,7 +2,8 @@
 // status (col 0 crypt self-test, 1 wifi, 2 router login at boot, 3 MCP
 // server, 4 last tool call): yellow = busy, green = OK, red = failed.
 // Row 3: left blinks blue while an MCP request is handled, right flashes
-// green for every connection to the router.
+// green for every connection to the router. Top right: heartbeat, a short
+// green flash every 2 s.
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -11,7 +12,9 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_timer.h"
+#include "cJSON.h"
 #include "mdns.h"
 #include "activity.h"
 #include "matrix.h"
@@ -20,6 +23,7 @@
 #include "router.h"
 #include "secrets.h"
 #include "sha512crypt.h"
+#include "tools.h"
 #include "wifi.h"
 
 #define LEVEL 5  // the LEDs are very bright
@@ -69,6 +73,26 @@ static bool router_check(void)
     return true;
 }
 
+// cJSON trees (tool results of up to a few hundred KB) go to PSRAM only. No
+// fallback to internal RAM: a too-large result once used that up and the wifi
+// driver aborted on its next allocation. Failures are counted, so the running
+// tool reports "too large" instead of returning a result cut short.
+static void *psram_malloc(size_t size)
+{
+    void *p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+    if (!p) tools_alloc_failures++;
+    return p;
+}
+
+// the event log tools need the real time (their window, pre-NTP router timestamps)
+static void start_sntp(void)
+{
+    esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(2, ESP_SNTP_SERVER_LIST("pool.ntp.org", "time.cloudflare.com"));
+    esp_netif_sntp_init(&cfg);
+    if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)) == ESP_OK) ESP_LOGI(TAG, "clock set by NTP");
+    else ESP_LOGW(TAG, "no NTP time yet; event log tools wait for it");
+}
+
 static void start_mdns(void)
 {
     if (mdns_init() != ESP_OK) {
@@ -87,6 +111,7 @@ void app_main(void)
     esp_flash_get_size(NULL, &flash_size);
     ESP_LOGI(TAG, "ESP32-S3: flash %lu KB, PSRAM free %u KB", (unsigned long)(flash_size / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = psram_malloc, .free_fn = free});
     matrix_init();
     activity_start();
     router_set_request_hook(activity_router);
@@ -103,6 +128,7 @@ void app_main(void)
         status(STEP_WIFI, OK);
     }
     start_mdns();
+    start_sntp();  // keeps trying in the background if it can't sync now
 
     status(STEP_LOGIN, BUSY);
     status(STEP_LOGIN, wifi_is_connected() && router_check() ? OK : FAILED);

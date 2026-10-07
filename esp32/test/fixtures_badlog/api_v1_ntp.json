@@ -1,0 +1,12 @@
+{
+ "ntp": {
+  "enable": true,
+  "status": "SYNCHRONIZED",
+  "now": "2026-10-02T15:00:00",
+  "time_zone_name": "Europe/Amsterdam",
+  "server1": "ntp1.example",
+  "server2": "",
+  "server3": null,
+  "server5": "ntp5.example"
+ }
+}

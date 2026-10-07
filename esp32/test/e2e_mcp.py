@@ -29,7 +29,11 @@ import sagemcom5598_mcp  # noqa: E402
 
 CALLS = [("router_overview", {}), ("network_topology", {}), ("list_extenders", {}), ("list_devices", {}),
          ("list_devices", {"include_inactive": True}), ("wan_details", {}), ("ethernet_ports", {}),
-         ("wifi_details", {}), ("firewall_details", {}), ("dhcp_details", {})]
+         ("wifi_details", {}), ("firewall_details", {}), ("dhcp_details", {}),
+         # every tool call adds GUI login/logout events, so compare on wifi events only
+         ("event_log", {"hours": 1000, "module": "WIFI", "limit": 30}),
+         ("event_log", {"hours": 1000, "module": "WIFI", "device": "schuur", "limit": 20}),
+         ("event_summary", {})]
 
 
 def token() -> str:
@@ -88,6 +92,14 @@ async def main() -> None:
                 print(f"{label}: ERROR board={b.content[0].text!r} python={p.content[0].text!r}")
                 continue
             b_data, p_data = json.loads(b.content[0].text), json.loads(p.content[0].text)
+            if name == "event_summary":
+                # GUI logins (ours, the Python server's) keep changing the counts; "this MCP
+                # server" marks the board's IP on one side and the laptop's on the other
+                b_data = {"keys": sorted(b_data), "wifi_devices": b_data["wifi_devices"]}
+                p_data = {"keys": sorted(p_data), "wifi_devices": p_data["wifi_devices"]}
+                for d in b_data["wifi_devices"] + p_data["wifi_devices"]:
+                    for k in ("connects", "disconnects", "auth_failures"):
+                        d.pop(k)
             same = identity(b_data) == identity(p_data)
             failures += not same
             size = len(b.content[0].text)

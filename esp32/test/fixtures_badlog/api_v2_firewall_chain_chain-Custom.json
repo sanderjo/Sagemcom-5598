@@ -1,0 +1,27 @@
+[
+ {
+  "enable": true,
+  "default_policy": "Drop",
+  "rules": [
+   {
+    "id": 1,
+    "alias": "r1",
+    "description": "d",
+    "enable": true,
+    "action": "Accept",
+    "ip_protocol": "ipv6",
+    "protocol": "tcp",
+    "src_ip": "",
+    "src_ports": -1,
+    "src_intf": "wan",
+    "dst_ip": "",
+    "dst_ports": 8080,
+    "dst_intf": "lan"
+   },
+   {
+    "id": 2,
+    "action": "Drop"
+   }
+  ]
+ }
+]

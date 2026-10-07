@@ -5,8 +5,7 @@
 #include "tools.h"
 
 typedef struct {
-    tools_fetch_fn fetch;
-    void *fetch_ctx;
+    tools_env_t env;
     const nickname_t *nicknames;
     size_t nickname_count;
     // called around each tool run (e.g. to log in/out of the router, update LEDs); may be NULL

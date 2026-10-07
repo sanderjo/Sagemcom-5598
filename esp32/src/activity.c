@@ -14,6 +14,10 @@
 #define FLASH_ON_MS 120       // green: one 120 ms flash per connection,
 #define FLASH_OFF_MS 100      // with a gap so back-to-back ones stay apart
 #define MAX_PENDING 20
+#define HEART_ROW 0
+#define HEART_COL 7
+#define HEART_PERIOD_MS 2000  // a short green flash every 2 s: the firmware is alive
+#define HEART_ON_MS 100
 
 static volatile int s_mcp_active;
 static volatile int64_t s_mcp_since;      // start of the current blinking, us
@@ -44,7 +48,7 @@ void activity_router(void)
 
 static void task(void *arg)
 {
-    int shown_blue = 0, shown_green = 0, green = 0;
+    int shown_blue = 0, shown_green = 0, shown_heart = 0, green = 0;
     int64_t green_until = 0, green_gap_until = 0;
     for (;;) {
         int64_t now = esp_timer_get_time();
@@ -65,12 +69,16 @@ static void task(void *arg)
             green_gap_until = now + FLASH_OFF_MS * 1000;
         }
 
-        if (blue != shown_blue || green != shown_green) {
+        int heart = (now / 1000) % HEART_PERIOD_MS < HEART_ON_MS;
+
+        if (blue != shown_blue || green != shown_green || heart != shown_heart) {
             matrix_set(MCP_ROW, MCP_COL, 0, 0, blue ? LEVEL : 0);
             matrix_set(ROUTER_ROW, ROUTER_COL, 0, green ? LEVEL : 0, 0);
+            matrix_set(HEART_ROW, HEART_COL, 0, heart ? LEVEL : 0, 0);
             matrix_show();
             shown_blue = blue;
             shown_green = green;
+            shown_heart = heart;
         }
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
     }

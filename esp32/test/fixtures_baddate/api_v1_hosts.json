@@ -1,0 +1,35 @@
+[
+ {
+  "hosts": {
+   "list": [
+    {
+     "friendlyHostname": "",
+     "hostname": "NAS",
+     "macaddress": "02:00:00:00:02:01",
+     "ipaddress": "10.0.0.20",
+     "ip6address": [
+      {
+       "ipaddress": "fe80::1"
+      }
+     ],
+     "active": true,
+     "link": "eth",
+     "type": "DHCP",
+     "lease": 100,
+     "lastseen": 0,
+     "devicetype": "nas"
+    },
+    {
+     "macaddress": "02:00:00:00:09:09",
+     "active": false,
+     "lastseen": 12345
+    },
+    {
+     "hostname": "Phone-old",
+     "macaddress": "02:00:00:00:01:03",
+     "active": 0
+    }
+   ]
+  }
+ }
+]

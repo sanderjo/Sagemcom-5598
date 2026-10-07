@@ -1,0 +1,45 @@
+[
+ {
+  "lan": {
+   "interfaces": [
+    {
+     "name": "eth1",
+     "alias": "WAN",
+     "role": "WAN",
+     "enable": true,
+     "status": "Up",
+     "curbitrate": "2500",
+     "currentduplex": "Full",
+     "rx": {
+      "bytes": "10"
+     },
+     "tx": {
+      "bytes": "20"
+     }
+    },
+    {
+     "name": "eth0",
+     "role": "LAN",
+     "curbitrate": "Auto",
+     "rx": {}
+    },
+    {
+     "name": "eth2",
+     "role": "LAN",
+     "curbitrate": null
+    },
+    {
+     "name": "eth3",
+     "role": "LAN",
+     "curbitrate": 1000,
+     "tx": {
+      "bytes": 7
+     }
+    },
+    {
+     "name": "eth4"
+    }
+   ]
+  }
+ }
+]

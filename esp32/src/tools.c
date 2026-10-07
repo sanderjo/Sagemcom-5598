@@ -1,13 +1,19 @@
 #include "tools.h"
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "eventlog.h"
 #include "pyjson.h"
 
+volatile unsigned tools_alloc_failures;
+
 typedef struct {
-    tools_fetch_fn fetch;
-    void *ctx;
+    const tools_env_t *env;
     pj_err_t *err;
+    const nickname_t *nicknames;
+    size_t nickname_count;
 } router_t;
 
 typedef cJSON *(*tool_fn)(const cJSON *args, router_t *r);
@@ -24,7 +30,7 @@ static cJSON *get_json(router_t *r, const char *path)
 {
     if (r->err->failed) return NULL;
     char msg[160] = "";
-    cJSON *json = r->fetch(r->ctx, path, msg, sizeof(msg));
+    cJSON *json = r->env->fetch(r->env->ctx, path, msg, sizeof(msg));
     if (!json) pj_fail(r->err, "%s", msg[0] ? msg : "router request failed");
     return json;
 }
@@ -499,6 +505,152 @@ static cJSON *dhcp_details(const cJSON *args, router_t *r)
     return out;
 }
 
+// --- event log tools -----------------------------------------------------------
+
+// Argument checks like the Python server's (pydantic): NULL value = not given.
+static int arg_number(const cJSON *args, const char *key, double dflt, double *out, pj_err_t *err)
+{
+    const cJSON *v = pj_get(args, key);
+    *out = dflt;
+    if (!v || cJSON_IsNull(v)) return 1;
+    if (!cJSON_IsNumber(v)) { pj_fail(err, "argument '%s' must be a number", key); return 0; }
+    *out = v->valuedouble;
+    return 1;
+}
+
+static int arg_string(const cJSON *args, const char *key, const char **out, pj_err_t *err)
+{
+    const cJSON *v = pj_get(args, key);
+    *out = NULL;
+    if (!v || cJSON_IsNull(v)) return 1;
+    if (!cJSON_IsString(v)) { pj_fail(err, "argument '%s' must be a string or null", key); return 0; }
+    *out = v->valuestring;
+    return 1;
+}
+
+static int64_t now_us(router_t *r)
+{
+    int64_t now = r->env->now_us ? r->env->now_us(r->env->ctx) : -1;
+    if (now < 0) pj_fail(r->err, "the clock is not set yet (no NTP sync), so the event window can't be computed");
+    return now;
+}
+
+// What both log tools need: the parsed log, and Names from hosts and the mesh.
+typedef struct {
+    char *raw;
+    event_log_t *log;
+    cJSON *hosts, *extenders, *gateway, *devices;
+    names_t *names;
+    int64_t now;
+} log_state_t;
+
+static void log_state_free(log_state_t *s)
+{
+    names_free(s->names);
+    eventlog_free(s->log);
+    free(s->raw);
+    cJSON_Delete(s->hosts);
+    cJSON_Delete(s->extenders);
+    cJSON_Delete(s->gateway);
+    cJSON_Delete(s->devices);
+}
+
+static int load_log(router_t *r, log_state_t *s)
+{
+    pj_err_t *err = r->err;
+    *s = (log_state_t){0};
+    if ((s->now = now_us(r)) < 0) return 0;
+    char msg[160] = "";
+    size_t len = 0;
+    s->raw = r->env->fetch_raw(r->env->ctx, "/api/v1/device/log", &len, msg, sizeof(msg));
+    if (!s->raw) { pj_fail(err, "%s", msg[0] ? msg : "router request failed"); return 0; }
+    WITH(open, "/api/v1/open");
+    cJSON *info = open ? device_info(open, err) : NULL;
+    cJSON_Delete(open);
+    const cJSON *uptime = pj_get(info, "uptime");
+    if (!err->failed && cJSON_IsNumber(uptime))
+        s->log = eventlog_parse(s->raw, len, s->now - (int64_t)llround(uptime->valuedouble * 1e6), err);
+    cJSON_Delete(info);
+    if (!s->log) return 0;
+
+    WITH(hosts_reply, "/api/v1/hosts");
+    WITH(mesh, "/api/v4/easymesh/meshdevices");
+    if (!err->failed) {
+        s->hosts = mesh_hosts(hosts_reply);
+        if (!s->hosts) pj_fail(err, "no host list in the router's data");
+        s->extenders = mesh_extenders(mesh);
+        s->gateway = gateway_node(mesh, err);
+        s->devices = mesh_devices(mesh);
+        if (!s->extenders || !s->devices) pj_fail(err, "no mesh in the router's data");
+    }
+    cJSON_Delete(hosts_reply);
+    cJSON_Delete(mesh);
+    if (!err->failed) s->names = names_build(s->hosts, s->extenders, s->gateway, s->devices, err);
+    return !err->failed;
+}
+
+static char *ascii_lower(const char *s)
+{
+    size_t n = strlen(s);
+    char *out = malloc(n + 1);
+    if (out)
+        for (size_t i = 0; i <= n; i++) out[i] = tolower((unsigned char)s[i]);
+    return out;
+}
+
+static cJSON *event_log(const cJSON *args, router_t *r)
+{
+    double hours, limit_d;
+    const char *module, *level, *device, *contains;
+    if (!arg_number(args, "hours", 25, &hours, r->err) || !arg_string(args, "module", &module, r->err) ||
+        !arg_string(args, "level", &level, r->err) || !arg_string(args, "device", &device, r->err) ||
+        !arg_string(args, "contains", &contains, r->err) || !arg_number(args, "limit", 200, &limit_d, r->err))
+        return NULL;
+    if (limit_d != (double)(long long)limit_d) {
+        pj_fail(r->err, "argument 'limit' must be an integer");
+        return NULL;
+    }
+    // _resolve_nickname(device).lower(): a nickname stands for its hostname/MAC
+    char *needle = NULL;
+    if (device && *device) {
+        char *dev = ascii_lower(device);
+        const char *name = dev;
+        for (size_t i = 0; dev && i < r->nickname_count; i++) {
+            char *nick = ascii_lower(r->nicknames[i].nickname);
+            if (nick && !strcmp(nick, dev)) name = r->nicknames[i].name;  // the last one wins, like a dict
+            free(nick);
+        }
+        needle = name ? ascii_lower(name) : NULL;
+        free(dev);
+    }
+    char *contains_l = contains && *contains ? ascii_lower(contains) : NULL;
+
+    log_state_t s;
+    cJSON *out = NULL;
+    if (load_log(r, &s))
+        out = eventlog_query(s.log, s.names, s.now, hours, module, level, needle, contains_l, (long long)limit_d, r->err);
+    log_state_free(&s);
+    free(needle);
+    free(contains_l);
+    return out;
+}
+
+static cJSON *event_summary(const cJSON *args, router_t *r)
+{
+    double hours;
+    if (!arg_number(args, "hours", 25, &hours, r->err)) return NULL;
+    const cJSON *given = pj_get(args, "hours");
+    cJSON *hours_json = cJSON_IsNumber(given) ? cJSON_Duplicate(given, 1) : cJSON_CreateNumber(25);
+    log_state_t s;
+    cJSON *out = NULL;
+    if (load_log(r, &s))
+        out = eventlog_summary(s.log, s.names, s.now, hours_json, r->env->own_ip ? r->env->own_ip(r->env->ctx) : NULL,
+                               r->err);
+    log_state_free(&s);
+    cJSON_Delete(hours_json);
+    return out;
+}
+
 // definitions generated from the Python server's tools/list (see test/e2e_mcp.py)
 static const tool_t TOOLS[] = {
     {"router_overview",
@@ -549,6 +701,19 @@ static const tool_t TOOLS[] = {
      "the router knows with its IPv4/IPv6 addresses and lease state.",
      "{\"type\":\"object\",\"properties\":{},\"title\":\"dhcp_detailsArguments\"}",
      dhcp_details},
+    {"event_log",
+     "The router's own event log for the last `hours`, newest first.\n"
+     "Filters: `module` (WIFI, SYS, GUI, DNS, DHCPC, DHCPS, WETH=WAN Ethernet,\n"
+     "LETH=LAN Ethernet), `level` (info, warning, err), `device` (MAC or part\n"
+     "of a hostname), `contains` (text). MACs are annotated with device names.",
+     "{\"type\":\"object\",\"properties\":{\"hours\":{\"default\":25,\"title\":\"Hours\",\"type\":\"number\"},\"module\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}],\"default\":null,\"title\":\"Module\"},\"level\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}],\"default\":null,\"title\":\"Level\"},\"device\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}],\"default\":null,\"title\":\"Device\"},\"contains\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}],\"default\":null,\"title\":\"Contains\"},\"limit\":{\"default\":200,\"title\":\"Limit\",\"type\":\"integer\"}},\"title\":\"event_logArguments\"}",
+     event_log},
+    {"event_summary",
+     "The event log over the last `hours` condensed: counts per event kind,\n"
+     "per wifi device (connects, disconnects, failed logins, SSIDs), GUI admin\n"
+     "logins by source IP, and any uncategorized events.",
+     "{\"type\":\"object\",\"properties\":{\"hours\":{\"default\":25,\"title\":\"Hours\",\"type\":\"number\"}},\"title\":\"event_summaryArguments\"}",
+     event_summary},
 };
 #define TOOL_COUNT (sizeof(TOOLS) / sizeof(TOOLS[0]))
 
@@ -581,7 +746,7 @@ int tools_exists(const char *name)
     return find(name) != NULL;
 }
 
-cJSON *tools_run(const char *name, const cJSON *args, tools_fetch_fn fetch, void *ctx,
+cJSON *tools_run(const char *name, const cJSON *args, const tools_env_t *env,
                  const nickname_t *nicknames, size_t nickname_count, char *err, size_t err_size)
 {
     const tool_t *tool = find(name);
@@ -591,13 +756,20 @@ cJSON *tools_run(const char *name, const cJSON *args, tools_fetch_fn fetch, void
     }
     pj_err_t e = {.msg = err, .size = err_size};
     err[0] = '\0';
-    router_t r = {.fetch = fetch, .ctx = ctx, .err = &e};
+    router_t r = {.env = env, .err = &e, .nicknames = nicknames, .nickname_count = nickname_count};
+    unsigned failures_before = tools_alloc_failures;
     cJSON *out = tool->run(args, &r);
+    if (out) mesh_add_nicknames(out, nicknames, nickname_count);
+    if (tools_alloc_failures != failures_before) {
+        cJSON_Delete(out);
+        snprintf(err, err_size, "the result is too large for the ESP32's memory; ask for less "
+                                "(a smaller `limit`, fewer `hours` or a filter)");
+        return NULL;
+    }
     if (e.failed || !out) {
         if (!e.failed) snprintf(err, err_size, "no result");
         cJSON_Delete(out);
         return NULL;
     }
-    mesh_add_nicknames(out, nicknames, nickname_count);
     return out;
 }

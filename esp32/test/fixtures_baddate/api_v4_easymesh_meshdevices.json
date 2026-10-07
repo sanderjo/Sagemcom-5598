@@ -1,0 +1,164 @@
+[
+ {
+  "meshDevices": [
+   {
+    "type": "gateway",
+    "hostname": "gw",
+    "deviceId": "02:00:00:00:00:01",
+    "ipv4": "10.0.0.1",
+    "wifiRadios": [
+     {
+      "band": "2.4",
+      "ssids": [
+       {
+        "ssid": "net",
+        "stations": [
+         {
+          "hostName": "",
+          "friendlyname": "Only-Friendly",
+          "macAddress": "02:00:00:00:01:01",
+          "ipv4Address": "10.0.0.50",
+          "signalStrength": -60,
+          "linkQuality": "GOOD"
+         },
+         {
+          "macAddress": "02:00:00:00:01:02"
+         },
+         {
+          "hostName": "Phone",
+          "macAddress": "02:00:00:00:01:03",
+          "signalStrength": null
+         }
+        ]
+       }
+      ],
+      "channel": "1"
+     },
+     {
+      "band": "5",
+      "ssids": [
+       {
+        "ssid": "net",
+        "stations": []
+       },
+       {
+        "ssid": "guest"
+       }
+      ]
+     },
+     {
+      "band": 5,
+      "channel": 36
+     }
+    ],
+    "ethernetPorts": [
+     {
+      "speed": 1000,
+      "neighbours": [
+       {
+        "hostName": "NAS",
+        "macAddress": "02:00:00:00:02:01",
+        "ipv4Address": "10.0.0.20"
+       }
+      ]
+     },
+     {
+      "neighbours": [
+       {
+        "friendlyname": "Switch",
+        "macAddress": "02:00:00:00:02:02"
+       }
+      ]
+     },
+     {}
+    ]
+   },
+   {
+    "type": "extender",
+    "hostname": "",
+    "deviceId": "02:00:00:00:00:02",
+    "ipv4": "10.0.0.2",
+    "upTime": 5,
+    "backhaul": {
+     "rootDeviceId": "02:00:00:00:00:01",
+     "linkType": "Wi-Fi",
+     "wifiLinks": [
+      {
+       "band": "2.4",
+       "rssi0": -70
+      },
+      {
+       "band": "5",
+       "signalStrength": null,
+       "rssi0": -80
+      },
+      {
+       "band": "6",
+       "signalStrength": -61
+      },
+      {
+       "band": "6",
+       "signalStrength": -62
+      }
+     ]
+    },
+    "ethernetPorts": [
+     {
+      "speed": 100,
+      "neighbours": [
+       {
+        "hostName": "TV",
+        "macAddress": "02:00:00:00:03:01"
+       }
+      ]
+     }
+    ],
+    "wifiRadios": [
+     {
+      "band": "2.4",
+      "channel": "6"
+     }
+    ]
+   },
+   {
+    "type": "extender",
+    "deviceId": "02:00:00:00:00:03",
+    "hostname": "ext-b",
+    "backhaul": {
+     "rootDeviceId": "02:00:00:00:00:02",
+     "linkType": "Ethernet"
+    },
+    "wifiRadios": [
+     {
+      "band": "6",
+      "channel": 37
+     }
+    ]
+   },
+   {
+    "type": "extender",
+    "hostname": "gw",
+    "deviceId": "02:00:00:00:00:04",
+    "backhaul": {
+     "rootDeviceId": "02:00:00:00:00:99"
+    },
+    "wifiRadios": [
+     {
+      "band": "6",
+      "channel": 37
+     }
+    ]
+   },
+   {
+    "type": "extender",
+    "hostname": "no-backhaul",
+    "deviceId": "02:00:00:00:00:05",
+    "backhaul": null
+   },
+   {
+    "hostname": "untyped",
+    "deviceId": "02:00:00:00:00:06"
+   }
+  ]
+ }
+]
